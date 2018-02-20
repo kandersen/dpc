@@ -1,0 +1,9 @@
+name: netsim
+version: 0.0.0.0
+dependencies:
+  - base
+  - containers
+
+library:
+  exposed-modules: NetSim.Core
+  source-dirs: src
