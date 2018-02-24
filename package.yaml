@@ -3,6 +3,10 @@ version: 0.0.0.0
 dependencies:
   - base
   - containers
+  - brick
+  - vty
+  - microlens
+  - microlens-th
 
 library:
   exposed-modules: NetSim.Core

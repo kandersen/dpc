@@ -1,26 +1,32 @@
 module NetSim.SimpleClientServer where
 
 import NetSim.Core
-import Data.Map as Map
+import qualified Data.Map as Map
+import Control.Applicative
+import Control.Monad
+import NetSim.Monadic
 
 data AppNodeStates = ClientInit NodeID
                    | ClientDone Int
                    | Server Int
                    deriving Show
 
-queryServer :: Protocol AppNodeStates
-queryServer = RPC "Query" cstep sstep
+queryServer :: ProtocolM AppNodeStates
+queryServer = RPCM "Query" cstep sstep
   where
-  cstep cnode = case _state cnode of
-    Running (ClientInit server) -> Just (server, [], Running . ClientDone . head)
-    _ -> Nothing
-  sstep [] snode = case _state snode of
-    Running (Server n) ->
-      Just ([n], _state snode)
-    _ -> Nothing
+    cstep :: ClientStepM AppNodeStates
+    cstep cnode = case _state cnode of
+      Running (ClientInit server) -> return (server, [], Running . ClientDone . head)
+      _ -> empty
+      
+    sstep :: ServerStepM AppNodeStates
+    sstep [] snode = case _state snode of
+      Running (Server n) ->
+        return ([n], _state snode)
+      _ -> empty
 
-initNetwork :: Network AppNodeStates
-initNetwork = Network {
+initNetwork :: NetworkM ProtocolM AppNodeStates
+initNetwork = NetworkM {
   _nodes = Map.fromList [(0, initNode $ ClientInit 1),
                          (1, initNode $ Server 42 ),
                          (2, initNode $ ClientInit 1)],
@@ -28,4 +34,4 @@ initNetwork = Network {
   }
 
 main :: IO ()
-main = driveNetwork initNetwork
+main = void $ simulateNetworkIO initNetwork stepNetworkM
