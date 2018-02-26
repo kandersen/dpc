@@ -36,6 +36,7 @@ data Node s = Node {
 
 data Protocol s = RPC String (ClientStep s) (ServerStep s)
                 | ARPC String (ClientStep s) (ServerReceive s) (ServerSend s)
+                | Notification String (Send s) (Receive s)
 
 type ClientStep s = Node s -> Maybe (NodeID, [Int], [Int] -> NodeState s)
 type ServerStep s = [Int] -> Node s -> Maybe ([Int], NodeState s)
@@ -44,9 +45,14 @@ type ServerStep s = [Int] -> Node s -> Maybe ([Int], NodeState s)
 type ServerReceive s = Message -> NodeState s -> Maybe (NodeState s)
 type ServerSend s = NodeID -> NodeState s -> Maybe (Message, NodeState s)
 
+type Receive s = Message -> s -> Maybe s
+type Send s = NodeID -> s -> Maybe (Message, s)
+
+
 instance Show s => Show (Protocol s) where
   show (RPC name _ _) = unwords [ "RPC { _name =", name, "}" ]
   show (ARPC name _ _ _) = unwords [ "ARPC { _name =", name, "}" ]
+  show (Notification name _ _) = unwords [ "Notification { _name =", name, "}" ]
 
 type Network s = NetworkM Protocol s
 
@@ -55,15 +61,38 @@ data NetworkM p s = NetworkM {
   _rpcs :: [p s]
   } deriving Show
 
-findResponse :: String -> NodeID -> [Message] -> [(Message, [Message])]
-findResponse rpc sender messages = do
-  let (candidates, rest) = partition rightMessage messages
-  case candidates of
-    [] -> []
-    [m] -> return (m, rest)
-    _ -> error "multiple responses to one request shouldn't happen"
+picks :: Alternative m => [a] -> m (a, [a])
+picks = go []
   where
-    rightMessage Message{..} = _msgTag == (rpc ++ "__Response") && _msgFrom == sender
+    go _ [] = empty
+    go l (x:rs) = pure (x, l ++ rs) <|> go (x : l) rs
+
+findMessage :: (Monad m, Alternative m) => (Message -> [Message] -> [Message] -> m a) -> String  -> [Message] -> m a
+findMessage combine tag messages = do
+  let (candidates, rest) = partition rightMessage messages
+  (msg, ms) <- picks candidates
+  combine msg ms rest
+  where
+    rightMessage Message{..} = _msgTag == tag
+
+findResponse :: (Monad m, Alternative m) => String -> NodeID -> [Message] -> m (Message, [Message])
+findResponse protocol sender =
+  findMessage combine (protocol ++ "__Response")
+  where
+    combine msg [] rest = if (_msgFrom msg == sender) then  pure (msg, rest) else empty
+    combine   _  _    _ = error "multiple responses to one request shouldn't happen"
+
+findRequest :: (Monad m, Alternative m) => String -> [Message] -> m (Message, [Message])
+findRequest protocol =
+  findMessage combine (protocol ++ "__Request")
+  where
+    combine msg others rest = pure (msg, others ++ rest)
+
+findNotificiation :: (Monad m, Alternative m) => String -> [Message] -> m (Message, [Message])
+findNotificiation protocol =
+  findMessage combine (protocol ++ "__Notification")
+  where
+    combine msg others rest = pure (msg, others ++ rest)
 
 data NodeTransition s = Received (Node s)
                       | SentMessage (Node s) Message
@@ -106,14 +135,6 @@ tryClientStep rpc step nodeID node =
       _msgFrom = nodeID
       }
 
-findRequest :: String -> [Message] -> [(Message, [Message])]
-findRequest rpc messages = do
-  let (candidates, rest) = partition rightMessage messages
-  case candidates of
-    [] -> []
-    (m:ms') -> return (m, ms' ++ rest)
-  where
-    rightMessage Message{..} = _msgTag == (rpc ++ "__Request")
 
 tryServerStep :: String -> ServerStep s -> NodeID -> Node s -> [(NodeTransition s)]
 tryServerStep rpc step nodeID node@Node{..} = do
@@ -139,6 +160,30 @@ applyRPC (ARPC name cstep sreceive ssend) nodeID node =
    tryClientStep name cstep nodeID node
    <|> tryServerSend ssend nodeID node
    <|> tryServerReceive name sreceive node
+applyRPC (Notification name send receive) nodeID node =
+  trySend send nodeID node
+  <|> tryReceiveNotification name receive node
+
+trySend :: Alternative m => Send s -> NodeID -> Node s -> m (NodeTransition s)
+trySend send nodeID node@Node{..} =
+  case _state of
+    Running state ->
+      case send nodeID state of
+        Nothing -> empty
+        Just (msg, s') ->
+          pure $ SentMessage node { _state = Running s' } msg
+    _ -> empty
+
+tryReceiveNotification :: (Monad m, Alternative m) => String -> Receive s -> Node s -> m (NodeTransition s)
+tryReceiveNotification protocol receive node@Node{..} = do
+  (msg, msgs') <- findNotificiation protocol _incommingMsgs
+  case _state of
+    Running state ->
+      case receive msg state of
+        Just s' ->
+          return . Received $ node { _state = Running s', _incommingMsgs = msgs' }
+        Nothing -> empty
+    _ -> empty
 
 tryServerSend :: ServerSend s -> NodeID -> Node s -> [(NodeTransition s)]
 tryServerSend send nodeID node@Node{..} =

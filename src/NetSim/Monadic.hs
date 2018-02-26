@@ -42,13 +42,6 @@ label l m = Choice [(l, m)]
 choice :: l -> a -> SimulationM l a
 choice l a = Choice [(l, pure a)]
 
-picks :: [a] -> [(a, [a])]
-picks = go []
-  where
-    go _ [] = []
-    go l (x:rs) = (x, l ++ rs) : go (x : l) rs
-
-
 for :: (Functor f) => f a -> (a -> b) -> f b
 for = flip fmap
 
