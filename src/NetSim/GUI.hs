@@ -9,15 +9,11 @@ import Brick.Main
 import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Brick.Widgets.Border.Style
-import Brick.Widgets.Core
 import Control.Monad (void, when)
 import Graphics.Vty
 import Control.Monad.IO.Class
 import Lens.Micro
 import Lens.Micro.TH
-
-import Graphics.Vty.Input.Events
-
 
 import Data.Map as Map
 
@@ -26,7 +22,7 @@ data ResourceName = ChoiceSelection
 
 data AppState s = AppState {
   _network :: Network s,
-  _transitions :: [(NodeID, NodeTransition s)],
+  _transitions :: [NodeTransition s],
   _form :: Form Int () ResourceName
   }
 makeLenses ''AppState
@@ -48,7 +44,7 @@ handleEvent as e = do
   f' <- handleFormEvent e (_form as)
   let selection = formState f'
   let options = length . _transitions $ as
-  continue $  as { _form = setFieldValid (0 < selection && selection <= options) ChoiceSelection $ f' }
+  continue $ as { _form = setFieldValid (0 < selection && selection <= options) ChoiceSelection f' }
 
 enableMouse :: EventM e ()
 enableMouse = do
@@ -57,16 +53,19 @@ enableMouse = do
   when (supportsMode output Mouse) $
     liftIO $ setMode output Mouse True
 
-renderNode :: Show s => (Int, Node s) -> Widget ResourceName
-renderNode (nodeID, Node{..}) =
+renderNode :: Show s => (NodeID, NodeState s, [Message]) -> Widget ResourceName
+renderNode (nodeID, state, inbox) =
   borderWithLabel (str $ "Node " ++ show nodeID) $
-    center (str $ show _state)
-    <=> center (str $ show _incommingMsgs)
+    center (str $ show state)
+    <=> center (str $ show inbox)
 
 renderNetwork :: Show s => AppState s -> [Widget ResourceName]
 renderNetwork AppState{..} = return $
   withBorderStyle unicode $
-    vBox (renderNode <$> Map.toList (_nodes _network))
+    vBox (renderNode <$> [ (nodeID, state, inbox) |
+                           (nodeID, state) <- Map.toList $ _states _network,
+                           (nodeID', inbox) <- Map.toList $ _inboxes _network,
+                           nodeID == nodeID'])
     <=> vBox (fmap (str . show) _transitions)
     <=> renderForm _form
 
@@ -80,7 +79,8 @@ renderNetworkApp = App {
   }
 
 inputForm :: Int -> Form Int () ResourceName
-inputForm = newForm [(str "Choice: " <+>) @@= editShowableField (lens id (flip const)) ChoiceSelection]
+inputForm = newForm [(str "Choice: " <+>)
+                       @@= editShowableField (lens id (flip const)) ChoiceSelection]
 
 runGUI :: Show s => Network s -> IO ()
 runGUI n = void $ defaultMain renderNetworkApp initialState

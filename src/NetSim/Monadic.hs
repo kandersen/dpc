@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 module NetSim.Monadic where
-
+{-
 import NetSim.Core
 import Control.Applicative
 import qualified Data.Map as Map
@@ -48,14 +48,14 @@ for = flip fmap
 
 findRequestM :: String -> [Message] -> SimulationM String (Message, [Message])
 findRequestM rpc messages = do
-  let choices = filter (rightMessage . fst) . picks $ messages
+  let choices = filter (rightMessage . fst) . select $ messages
   Choice [ (show msg, return (msg, rest)) | (msg, rest) <- choices ]
   where
     rightMessage Message{..} = _msgTag == (rpc ++ "__Request")
 
 findResponseM :: String -> NodeID -> [Message] -> SimulationM String (Message, [Message])
 findResponseM rpc sender messages = do
-  let choices = filter (rightMessage . fst) . picks $ messages
+  let choices = filter (rightMessage . fst) . select $ messages
   Choice [ (show msg, return (msg, rest)) | (msg, rest) <- choices ]
   where
     rightMessage Message{..} = _msgTag == (rpc ++ "__Response") && _msgFrom == sender
@@ -78,13 +78,13 @@ tryServerStepM rpc step nodeID node@Node{..} = do
       _msgTo = receiver
       }
 
-type ClientStepM s = Node s -> SimulationM String (NodeID, [Int], [Int] -> NodeState s)
+type ClientStepM s = Node s -> SimulationM String (NodeID, [Int], [Int] -> s)
 
 
 tryClientStepM :: String -> ClientStepM s -> NodeID -> Node s -> SimulationM String (NodeTransition s)
 tryClientStepM rpc step nodeID node = do
    (server, req, k) <- step node
-   return $ SentMessage (buildBlockingNode server k) (buildRequest server req)
+   pure $ SentMessage (buildBlockingNode server k) (buildRequest server req)
   where
     buildBlockingNode server k = node {
       _state = BlockingOn rpc server k
@@ -113,7 +113,7 @@ stepNodeM :: Node s -> SimulationM String (NodeTransition s)
 stepNodeM n@Node{..} = case _state of
   (BlockingOn rpcName from k) -> do
     (response, msgs') <- findResponseM rpcName from _incommingMsgs
-    return $ Received $ n { _state = k (_msgBody response), _incommingMsgs = msgs' }
+    return $ Received $ n { _state = Running $ k (_msgBody response), _incommingMsgs = msgs' }
   _ -> empty
 
 stepNetworkM :: NetworkM ProtocolM s -> SimulationM String (NetworkM ProtocolM s)
@@ -141,3 +141,56 @@ simulateNetworkIO start step = go start (step start)
     go _ m = do
       next <- stepSimulationIO m
       go next (step next)
+
+
+userPick :: [(String, a)] -> IO a
+userPick [] = error "Shouldn't happen"
+userPick cs = do
+  forM_ (zip cs [1 :: Int ..]) $ \((l,_), n) ->
+    putStrLn $ show n ++ ":\t" ++ l
+  n <- getIndex (length cs)
+  return . snd $ cs !! n
+  where
+    getIndex :: Int -> IO Int
+    getIndex atMost = do
+      mn <- fmap fst . listToMaybe . reads <$> getLine
+      case mn of
+        Just n | 0 < n && n <= atMost -> return (n - 1)
+        _ -> getIndex atMost
+
+    listToMaybe [] = Nothing
+    listToMaybe (x:_) = Just x
+
+
+driveNetwork :: Show s => Network s -> IO ()
+driveNetwork = go
+  where
+    go n = do
+      print n
+      void getLine
+      case stepNetwork n of
+        [] -> return ()
+        (n':_) -> go n'
+
+runNetwork :: Show s => Int -> Network s -> IO ()
+runNetwork = go
+  where
+    go 0 _ = putStrLn "Hit the step limit"
+    go s n = do
+      print n
+      case stepNetwork n of
+        [] -> return ()
+        (n':_) -> go (s - 1) n'
+
+runNetworkWithUserInput :: Show s => Network s -> IO ()
+runNetworkWithUserInput = go
+  where
+    go n = do
+      let possibilities = possibleTransitions n
+      case possibilities of
+        [] -> return ()
+        _ -> do
+          print n
+          next <- userPick (zip (map show possibilities) possibilities)
+          go $ applyTransition next n
+-}

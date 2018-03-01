@@ -1,276 +1,182 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards #-}
-module NetSim.Core where
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE TupleSections #-}
+module NetSim.Core (
+    module NetSim.Core
+  , module Control.Applicative
+  ) where
 
+import NetSim.Util
+import Data.List (partition)
 import qualified Data.Map as Map
 import Data.Map (Map)
-import Data.List (partition, intercalate)
 import Control.Applicative
-import Control.Monad
 
 type NodeID = Int
 
 data Message = Message {
   _msgFrom :: NodeID,
-  _msgTag :: String,
+  _msgTag  :: String,
   _msgBody :: [Int],
-  _msgTo :: NodeID
+  _msgTo   :: NodeID
   }
+  deriving Show
 
-instance Show Message where
-  show Message{..} = concat [
-    show _msgFrom, " : ",
-    _msgTag, "(", intercalate "," (map show _msgBody), ")" ]
+withTag :: String -> (Message -> Bool)
+withTag tag = (tag ==) . _msgTag
 
 data NodeState s = Running s
-                 | BlockingOn String NodeID ([Int] -> NodeState s)
+                 | BlockingOn String [NodeID] ([[Int]] -> s)
 
 instance Show s => Show (NodeState s) where
-  show (Running s) = "Running " ++ show s
-  show (BlockingOn rpc from _) = unwords ["BlockingOn", rpc, show from, "<Continuation>"]
+  show (Running s) =
+    "Running " ++ show s
+  show (BlockingOn rpc from _) =
+    unwords ["BlockingOn", rpc, show from, "<Continuation>"]
 
-data Node s = Node {
-  _state :: NodeState s,
-  _incommingMsgs :: [Message]
-} deriving Show
+--                            Name   Initiateor     Recipient(s)
+data Protlet s = RPC          String (ClientStep s) (ServerStep s)
+               | ARPC         String (ClientStep s) (Receive s) (Send s)
+               | Notification String (Send s)       (Receive s)
+               | Broadcast    String (Broadcast s)  (Receive s) (Send s)
 
-data Protocol s = RPC String (ClientStep s) (ServerStep s)
-                | ARPC String (ClientStep s) (ServerReceive s) (ServerSend s)
-                | Notification String (Send s) (Receive s)
-
-type ClientStep s = Node s -> Maybe (NodeID, [Int], [Int] -> NodeState s)
-type ServerStep s = [Int] -> Node s -> Maybe ([Int], NodeState s)
-
-
-type ServerReceive s = Message -> NodeState s -> Maybe (NodeState s)
-type ServerSend s = NodeID -> NodeState s -> Maybe (Message, NodeState s)
+type ClientStep s = s -> Maybe (NodeID, [Int], [Int] -> s)
+type ServerStep s = [Int] -> s -> Maybe ([Int], s)
 
 type Receive s = Message -> s -> Maybe s
 type Send s = NodeID -> s -> Maybe (Message, s)
 
+type Broadcast s = NodeID -> s -> Maybe ([(NodeID, [Int])], [[Int]] -> s)
 
-instance Show s => Show (Protocol s) where
-  show (RPC name _ _) = unwords [ "RPC { _name =", name, "}" ]
-  show (ARPC name _ _ _) = unwords [ "ARPC { _name =", name, "}" ]
-  show (Notification name _ _) = unwords [ "Notification { _name =", name, "}" ]
+data Network s = Network {
+  _nodes :: [NodeID],
+  _states :: Map NodeID (NodeState s),
+  _inboxes :: Map NodeID [Message],
+  _protlets :: [Protlet s]
+  }
 
-type Network s = NetworkM Protocol s
+findMessage :: (Alternative m) =>
+  (Message -> Bool) -> ([Message] -> m a) -> [Message] -> m (a, [Message])
+findMessage predicate combine messages = do
+  let (candidates, rest) = partition predicate messages
+  (,rest) <$> combine candidates
 
-data NetworkM p s = NetworkM {
-  _nodes :: Map NodeID (Node s),
-  _rpcs :: [p s]
-  } deriving Show
-
-picks :: Alternative m => [a] -> m (a, [a])
-picks = go []
-  where
-    go _ [] = empty
-    go l (x:rs) = pure (x, l ++ rs) <|> go (x : l) rs
-
-findMessage :: (Monad m, Alternative m) => (Message -> [Message] -> [Message] -> m a) -> String  -> [Message] -> m a
-findMessage combine tag messages = do
-  let (candidates, rest) = partition rightMessage messages
-  (msg, ms) <- picks candidates
-  combine msg ms rest
-  where
-    rightMessage Message{..} = _msgTag == tag
-
-findResponse :: (Monad m, Alternative m) => String -> NodeID -> [Message] -> m (Message, [Message])
-findResponse protocol sender =
-  findMessage combine (protocol ++ "__Response")
-  where
-    combine msg [] rest = if (_msgFrom msg == sender) then  pure (msg, rest) else empty
-    combine   _  _    _ = error "multiple responses to one request shouldn't happen"
-
-findRequest :: (Monad m, Alternative m) => String -> [Message] -> m (Message, [Message])
-findRequest protocol =
-  findMessage combine (protocol ++ "__Request")
-  where
-    combine msg others rest = pure (msg, others ++ rest)
-
-findNotificiation :: (Monad m, Alternative m) => String -> [Message] -> m (Message, [Message])
-findNotificiation protocol =
-  findMessage combine (protocol ++ "__Notification")
-  where
-    combine msg others rest = pure (msg, others ++ rest)
-
-data NodeTransition s = Received (Node s)
-                      | SentMessage (Node s) Message
+data NodeTransition s = ReceivedMessage NodeID (NodeState s) [Message]
+                      | SentMessages    NodeID (NodeState s) [Message] [Message]
                       deriving Show
 
-stepNode :: Node s -> [(NodeTransition s)]
-stepNode n@Node{..} = case _state of
-  (BlockingOn rpcName from k) -> do
-    (response, msgs') <- findResponse rpcName from _incommingMsgs
-    return $ Received $ n { _state = k (_msgBody response), _incommingMsgs = msgs' }
-  _ -> []
-
-deliverToNode :: Message -> Node s -> Node s
-deliverToNode msg node = node { _incommingMsgs = _incommingMsgs node ++ [msg] }
-
-deliver :: Message -> NetworkM p s -> NetworkM p s
-deliver msg@Message { .. } network =
-  network { _nodes = Map.adjust (deliverToNode msg) _msgTo (_nodes network) }
-
-updateNetwork :: NodeID -> NodeTransition s -> (NetworkM p s -> NetworkM p s)
-updateNetwork node (Received s) network@NetworkM{..} =
-  network { _nodes = Map.insert node s _nodes }
-updateNetwork node (SentMessage s msg) network@NetworkM{..} =
-  deliver msg $ network { _nodes = Map.insert node s _nodes }
-
-tryClientStep :: String -> ClientStep s -> NodeID -> Node s -> [(NodeTransition s)]
-tryClientStep rpc step nodeID node =
-  case step node of
-    Nothing -> []
-    Just (server, req, k) ->
-      return $ SentMessage (buildBlockingNode server k) (buildRequest server req)
+resolveBlock :: (Monad m, Alternative m) =>
+  String -> NodeID -> [Message] -> [NodeID] -> ([[Int]] -> s) -> m (NodeTransition s)
+resolveBlock tag nodeID inbox [responder] k = do
+  ((response, others), inbox') <- findMessage isResponse oneOf inbox
+  pure $ ReceivedMessage nodeID (Running $ k [_msgBody response]) (others ++ inbox')
   where
-    buildBlockingNode server k = node {
-      _state = BlockingOn rpc server k
-      }
+    isResponse Message{..} = _msgTag == tag && _msgFrom == responder
+
+deliver :: Message -> Network s -> Network s
+deliver msg@Message { .. } network@Network{..} =
+  network { _inboxes = Map.adjust (msg:) _msgTo _inboxes }
+
+updateNetwork :: NodeTransition s -> (Network s -> Network s)
+updateNetwork (ReceivedMessage nodeID s' inbox') network@Network{..} =
+  network {
+    _states = Map.insert nodeID s' _states,
+    _inboxes = Map.insert nodeID inbox' _inboxes
+  }
+updateNetwork (SentMessages nodeID s' inbox' msgs) network@Network{..} =
+  foldr (.) id (deliver <$> msgs) $ network {
+  _states = Map.insert nodeID s' _states,
+  _inboxes = Map.insert nodeID inbox' _inboxes
+ }
+
+tryClientStep :: (Alternative m) =>
+  String -> ClientStep s -> NodeID -> s -> [Message] -> m (NodeTransition s)
+tryClientStep protlet step nodeID state inbox = case step state of
+  Just (server, req, k) ->
+    pure $ SentMessages nodeID (BlockingOn (protlet ++ "__Response") [server] (k . head)) inbox [buildRequest server req]
+  _  -> empty
+  where
     buildRequest receiver body = Message {
-      _msgTag = rpc ++ "__Request",
+      _msgTag = protlet ++ "__Request",
       _msgTo = receiver,
       _msgBody = body,
       _msgFrom = nodeID
       }
 
-
-tryServerStep :: String -> ServerStep s -> NodeID -> Node s -> [(NodeTransition s)]
-tryServerStep rpc step nodeID node@Node{..} = do
-  (Message{..}, msgs') <- findRequest rpc _incommingMsgs
-  let n' = node { _incommingMsgs = msgs' }
-  case step _msgBody n' of
-    Nothing -> []
-    Just (ans, s') ->
-      return $ SentMessage n' {_state = s' } (buildReply _msgFrom ans)
+tryServerStep :: (Monad m, Alternative m) =>
+  String -> ServerStep s -> NodeID -> s -> [Message] -> m (NodeTransition s)
+tryServerStep protocol step nodeID state inbox = do
+  ((Message{..}, requests'), inbox') <- findMessage isRequest oneOf inbox
+  case step _msgBody state of
+    Just (ans, state') ->
+      pure $ SentMessages nodeID (Running state') (requests' ++ inbox') [buildReply _msgFrom ans]
+    _ -> empty
   where
+    isRequest Message{..} = _msgTag == protocol ++ "__Request"
+
     buildReply :: NodeID -> [Int] -> Message
     buildReply receiver body = Message {
-      _msgTag = rpc ++ "__Response",
+      _msgTag = protocol ++ "__Response",
       _msgFrom = nodeID,
       _msgBody = body,
       _msgTo = receiver
       }
 
-applyRPC :: Protocol s -> NodeID -> Node s -> [(NodeTransition s)]
-applyRPC (RPC name cstep sstep) nodeID node =
-  tryClientStep name cstep nodeID node <|> tryServerStep name sstep nodeID node
-applyRPC (ARPC name cstep sreceive ssend) nodeID node =
-   tryClientStep name cstep nodeID node
-   <|> tryServerSend ssend nodeID node
-   <|> tryServerReceive name sreceive node
-applyRPC (Notification name send receive) nodeID node =
-  trySend send nodeID node
-  <|> tryReceiveNotification name receive node
+stepProtlet :: (Monad m, Alternative m) =>
+  NodeID -> s -> [Message] -> Protlet s ->  m (NodeTransition s)
+stepProtlet nodeID state inbox protlet = case protlet of
+  RPC name cstep sstep ->
+    tryClientStep name cstep nodeID state inbox <|>
+    tryServerStep name sstep nodeID state inbox
+  ARPC name cstep sreceive ssend ->
+    tryClientStep name cstep nodeID state inbox <|>
+    tryReceive (name ++ "__Request") sreceive nodeID state inbox <|>
+    trySend ssend nodeID state inbox
+  Notification name send receive ->
+    trySend send nodeID state inbox <|>
+    tryReceive (name ++ "__Notification") receive nodeID state inbox
 
-trySend :: Alternative m => Send s -> NodeID -> Node s -> m (NodeTransition s)
-trySend send nodeID node@Node{..} =
-  case _state of
-    Running state ->
-      case send nodeID state of
-        Nothing -> empty
-        Just (msg, s') ->
-          pure $ SentMessage node { _state = Running s' } msg
-    _ -> empty
+tryReceive :: (Monad m, Alternative m) =>
+  String -> Receive s -> NodeID -> s -> [Message] -> m (NodeTransition s)
+tryReceive tag receive nodeID state inbox = do
+  ((m, requests'), rest) <- findMessage (withTag tag) oneOf inbox
+  case receive m state of
+    Just state' ->
+      pure $ ReceivedMessage nodeID (Running state') (requests' ++ rest)
+    _ ->
+      empty
 
-tryReceiveNotification :: (Monad m, Alternative m) => String -> Receive s -> Node s -> m (NodeTransition s)
-tryReceiveNotification protocol receive node@Node{..} = do
-  (msg, msgs') <- findNotificiation protocol _incommingMsgs
-  case _state of
-    Running state ->
-      case receive msg state of
-        Just s' ->
-          return . Received $ node { _state = Running s', _incommingMsgs = msgs' }
-        Nothing -> empty
-    _ -> empty
+trySend :: (Alternative m) =>
+  Send s -> NodeID -> s -> [Message] -> m (NodeTransition s)
+trySend send nodeID state inbox = case send nodeID state of
+  Just (msg, state') ->
+    pure $ SentMessages nodeID (Running state') inbox [msg]
+  _ ->
+    empty
 
-tryServerSend :: ServerSend s -> NodeID -> Node s -> [(NodeTransition s)]
-tryServerSend send nodeID node@Node{..} =
-  case send nodeID _state of
-    Nothing -> []
-    Just (msg, s') ->
-      return $ SentMessage node { _state = s' } msg
+possibleTransitions :: (Monad m, Alternative m) => Network s -> m (NodeTransition s)
+possibleTransitions Network{..} = do
+  nodeID <- fst <$> oneOf _nodes
+  let state = _states Map.! nodeID
+  let inbox = _inboxes Map.! nodeID
+  case state of
+    BlockingOn tag nodeIDs k ->
+      resolveBlock tag nodeID inbox nodeIDs k
+    Running s -> do
+      protlet <- fst <$> oneOf _protlets
+      stepProtlet nodeID s inbox protlet
 
-tryServerReceive :: String -> ServerReceive s -> Node s -> [(NodeTransition s)]
-tryServerReceive protocol receive node@Node{..} = do
-  (msg, msgs') <- findRequest protocol _incommingMsgs
-  case receive msg _state of
-    Nothing -> []
-    Just s' ->
-      return . Received $ node {_state = s', _incommingMsgs = msgs' }
+applyTransition :: NodeTransition s -> (Network s -> Network s)
+applyTransition = updateNetwork
 
+stepNetwork :: (Monad m, Alternative m) => Network s -> m (Network s)
+stepNetwork network = updateNetwork <$> possibleTransitions network <*> pure network
 
-possibleTransitions :: Network s -> [(NodeID, NodeTransition s)]
-possibleTransitions NetworkM{..} = do
-  nodeID <- Map.keys _nodes
-  let node = _nodes Map.! nodeID
-  t <- stepNode node <|> do
-    rpc <- _rpcs
-    applyRPC rpc nodeID node
-  return (nodeID, t)
-
-applyTransition :: (NodeID, NodeTransition s) -> (Network s -> Network s)
-applyTransition (nodeID, t) = updateNetwork nodeID t
-
-stepNetwork :: Network s -> [Network s]
-stepNetwork network = do
-  t <- possibleTransitions network
-  return $ applyTransition t network
-
-initNode :: s -> Node s
-initNode s = Node {
-  _state = Running s,
-  _incommingMsgs = []
+initializeNetwork :: [(NodeID,s)] -> [Protlet s] -> Network s
+initializeNetwork ns protlets = Network {
+  _nodes = fst <$> ns,
+  _states = Map.fromList [ (n, Running s) | (n, s) <- ns ],
+  _inboxes = Map.fromList [ (n, []) | (n, _) <- ns ],
+  _protlets = protlets
   }
-
-driveNetwork :: Show s => Network s -> IO ()
-driveNetwork = go
-  where
-    go n = do
-      print n
-      void getLine
-      case stepNetwork n of
-        [] -> return ()
-        (n':_) -> go n'
-
-runNetwork :: Show s => Int -> Network s -> IO ()
-runNetwork = go
-  where
-    go 0 _ = putStrLn "Hit the step limit"
-    go s n = do
-      print n
-      case stepNetwork n of
-        [] -> return ()
-        (n':_) -> go (s - 1) n'
-
-runNetworkWithUserInput :: Show s => Network s -> IO ()
-runNetworkWithUserInput = go
-  where
-    go n = do
-      let possibilities = possibleTransitions n
-      case possibilities of
-        [] -> return ()
-        _ -> do
-          print n
-          next <- userPick (zip (map show possibilities) possibilities)
-          go $ applyTransition next n
-
-userPick :: [(String, a)] -> IO a
-userPick [] = error "Shouldn't happen"
-userPick cs = do
-  forM_ (zip cs [1 :: Int ..]) $ \((l,_), n) ->
-    putStrLn $ show n ++ ":\t" ++ l
-  n <- getIndex (length cs)
-  return . snd $ cs !! n
-  where
-    getIndex :: Int -> IO Int
-    getIndex atMost = do
-      mn <- fmap fst . listToMaybe . reads <$> getLine
-      case mn of
-        Just n | 0 < n && n <= atMost -> return (n - 1)
-        _ -> getIndex atMost
-
-    listToMaybe [] = Nothing
-    listToMaybe (x:_) = Just x
-

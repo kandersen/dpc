@@ -7,6 +7,7 @@ dependencies:
   - vty
   - microlens
   - microlens-th
+  - mtl
 
 library:
   exposed-modules: NetSim.Core
