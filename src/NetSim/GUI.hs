@@ -22,7 +22,7 @@ data ResourceName = ChoiceSelection
 
 data AppState s = AppState {
   _network :: Network s,
-  _transitions :: [NodeTransition s],
+  _transitions :: [Transition s],
   _form :: Form Int () ResourceName
   }
 makeLenses ''AppState
