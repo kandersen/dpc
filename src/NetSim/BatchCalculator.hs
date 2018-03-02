@@ -9,7 +9,7 @@ data PState = ClientInit NodeID NodeID Int Int
             | ServerSend Int [(NodeID, Int)]
             deriving Show
 
-computeProtocol :: Protlet PState
+computeProtocol :: Alternative f => Protlet f PState
 computeProtocol = ARPC "Compute" client serverRec serverSend
   where
     client state = case state of
@@ -32,7 +32,7 @@ computeProtocol = ARPC "Compute" client serverRec serverSend
     compute :: (NodeID, Int, Int) -> (NodeID, Int)
     compute (c, a, b) = (c, a + b)
 
-    serverSend :: Send PState
+    --serverSend :: Send PState
     serverSend nodeID state = case state of
       ServerSend batchSize [(c, n)] ->
         pure (buildReply c [n], ServerBatch batchSize [])
@@ -47,7 +47,7 @@ computeProtocol = ARPC "Compute" client serverRec serverSend
           _msgFrom = nodeID
           }
 
-initNetwork :: Network PState
+initNetwork :: Alternative f => Network f PState
 initNetwork = initializeNetwork nodes protlets
   where
     nodes = [ (0, ServerBatch 3 [])

@@ -36,25 +36,25 @@ instance Show s => Show (NodeState s) where
   show (BlockingOn rpc from _) =
     unwords ["BlockingOn", rpc, show from, "<Continuation>"]
 
---                            Name   Initiateor     Recipient(s)
-data Protlet s = RPC          String (ClientStep s) (ServerStep s)
-               | ARPC         String (ClientStep s) (Receive s) (Send s)
-               | Notification String (Send s)       (Receive s)
-               | Broadcast    String (Broadcast s)  (Receive s) (Send s)
+--                              Name   Initiateor     Recipient(s)
+data Protlet f s = RPC          String (ClientStep s) (ServerStep s)
+                 | ARPC         String (ClientStep s) (Receive s) (Send f s)
+                 | Notification String (Send f s)     (Receive s)
+                 | Broadcast    String (Broadcast s)  (Receive s) (Send f s)
 
 type ClientStep s = s -> Maybe (NodeID, [Int], [Int] -> s)
 type ServerStep s = [Int] -> s -> Maybe ([Int], s)
 
-type Receive s = Message -> s -> Maybe           s
-type Send    s = NodeID  -> s -> Maybe (Message, s)
+type Receive   s = Message -> s -> Maybe           s
+type Send    f s = NodeID  -> s -> f (Message, s)
 
 type Broadcast s = s -> Maybe ([(NodeID, [Int])], [[Int]] -> s)
 
-data Network s = Network {
-  _nodes :: [NodeID],
-  _states :: Map NodeID (NodeState s),
-  _inboxes :: Map NodeID [Message],
-  _protlets :: [Protlet s]
+data Network f s = Network {
+  _nodes    :: [NodeID],
+  _states   :: Map NodeID (NodeState s),
+  _inboxes  :: Map NodeID [Message],
+  _protlets :: [Protlet f s]
   }
 
 findMessage :: (Alternative m) =>
@@ -64,8 +64,8 @@ findMessage predicate combine messages = do
   (,rest) <$> combine candidates
 
 data Transition s = ReceivedMessage NodeID (NodeState s) [Message]
-                      | SentMessages    NodeID (NodeState s) [Message] [Message]
-                      deriving Show
+                  | SentMessages    NodeID (NodeState s) [Message] [Message]
+                  deriving Show
 
 resolveBlock :: (Monad m, Alternative m) =>
   String -> NodeID -> [Message] -> [NodeID] -> ([[Int]] -> s) -> m (Transition s)
@@ -87,11 +87,11 @@ resolveBlock tag nodeID inbox responders k = do
 
     isResponse from Message{..} = _msgFrom == from && _msgTag == tag
 
-deliver :: Message -> Network s -> Network s
+deliver :: Message -> Network m s -> Network m s
 deliver msg@Message { .. } network@Network{..} =
   network { _inboxes = Map.adjust (msg:) _msgTo _inboxes }
 
-applyTransition :: Transition s -> (Network s -> Network s)
+applyTransition :: Transition s -> (Network m s -> Network m s)
 applyTransition (ReceivedMessage nodeID s' inbox') network@Network{..} =
   network {
     _states = Map.insert nodeID s' _states,
@@ -146,13 +146,11 @@ tryReceive tag receive nodeID state inbox = do
     _ ->
       empty
 
-trySend :: (Alternative m) =>
-  Send s -> NodeID -> s -> [Message] -> m (Transition s)
-trySend send nodeID state inbox = case send nodeID state of
-  Just (msg, state') ->
-    pure $ SentMessages nodeID (Running state') inbox [msg]
-  _ ->
-    empty
+trySend :: (Monad m, Alternative m) =>
+  Send m s -> NodeID -> s -> [Message] -> m (Transition s)
+trySend send nodeID state inbox = do
+  (msg , state') <- send nodeID state
+  pure $ SentMessages nodeID (Running state') inbox [msg]
 
 tryBroadcast :: (Alternative m) =>
   String -> Broadcast s -> NodeID -> s -> [Message] -> m (Transition s)
@@ -169,7 +167,7 @@ tryBroadcast name broadcast nodeID state inbox = case broadcast state of
       }
 
 stepProtlet :: (Monad m, Alternative m) =>
-  NodeID -> s -> [Message] -> Protlet s ->  m (Transition s)
+  NodeID -> s -> [Message] -> Protlet m s ->  m (Transition s)
 stepProtlet nodeID state inbox protlet = case protlet of
   RPC name cstep sstep ->
     tryClientStep name cstep nodeID state inbox <|>
@@ -186,7 +184,7 @@ stepProtlet nodeID state inbox protlet = case protlet of
     tryReceive (name ++ "__Broadcast") receive nodeID state inbox <|>
     trySend respond nodeID state inbox
 
-possibleTransitions :: (Monad m, Alternative m) => Network s -> m (Transition s)
+possibleTransitions :: (Monad m, Alternative m) => Network m s -> m (Transition s)
 possibleTransitions Network{..} = do
   nodeID <- fst <$> oneOf _nodes
   let state = _states Map.! nodeID
@@ -198,10 +196,10 @@ possibleTransitions Network{..} = do
       protlet <- fst <$> oneOf _protlets
       stepProtlet nodeID s inbox protlet
 
-stepNetwork :: (Monad m, Alternative m) => Network s -> m (Network s)
+stepNetwork :: (Monad m, Alternative m) => Network m s -> m (Network m s)
 stepNetwork network = applyTransition <$> possibleTransitions network <*> pure network
 
-initializeNetwork :: [(NodeID,s)] -> [Protlet s] -> Network s
+initializeNetwork :: [(NodeID,s)] -> [Protlet m s] -> Network m s
 initializeNetwork ns protlets = Network {
   _nodes = fst <$> ns,
   _states = Map.fromList [ (n, Running s) | (n, s) <- ns ],

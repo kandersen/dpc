@@ -16,7 +16,7 @@ data State = ClientInit NodeID NodeID Int
                   | ResourceModifyFailed NodeID NodeID Int
                   deriving Show
 
-acquire :: Protlet State
+acquire :: Protlet f State
 acquire = RPC "Acquire" client server
   where
     client :: ClientStep State
@@ -32,10 +32,9 @@ acquire = RPC "Acquire" client server
         pure ([nextToken], LockHeld (nextToken + 1) nextToken)
       _ -> empty
 
-release :: Protlet State
+release :: Alternative f => Protlet f State
 release = Notification "Release" client server
   where
-    client :: Send State
     client this state = case state of
       ClientUpdateDone lock token ->
         pure (buildNotification lock token, ClientDone)
@@ -56,7 +55,7 @@ release = Notification "Release" client server
                                    else LockHeld this held
       _ -> empty
 
-modifyResource :: Protlet State
+modifyResource :: Alternative f => Protlet f State
 modifyResource = ARPC "Modify" clientStep serverReceive serverRespond
   where
     clientStep :: ClientStep State
@@ -76,7 +75,7 @@ modifyResource = ARPC "Modify" clientStep serverReceive serverRespond
         pure $ ResourceVerifying lock (_msgFrom, val', token) val
       _ -> empty
 
-    serverRespond :: Send State
+    --serverRespond :: Send State
     serverRespond nodeID snode = case snode of
       ResourceModifySucceeded lock client val' ->
         pure (buildReply client [1], ResourceIdle lock val')
@@ -91,7 +90,7 @@ modifyResource = ARPC "Modify" clientStep serverReceive serverRespond
           _msgBody = ans
           }
 
-verifyToken :: Protlet State
+verifyToken :: Alternative f => Protlet f State
 verifyToken = RPC "Verify" clientStep serverStep
   where
     clientStep :: ClientStep State
@@ -111,7 +110,7 @@ verifyToken = RPC "Verify" clientStep serverStep
         pure ([if heldBy == token then 1 else 0], state)
       _ -> empty
 
-initNetwork :: Network State
+initNetwork :: Alternative f => Network f State
 initNetwork = initializeNetwork nodes protlets
   where
     nodes = [ (0, ClientInit 2 3 42)

@@ -21,7 +21,7 @@ data ResourceName = ChoiceSelection
                   deriving (Show, Eq, Ord)
 
 data AppState s = AppState {
-  _network :: Network s,
+  _network :: Network [] s,
   _transitions :: [Transition s],
   _form :: Form Int () ResourceName
   }
@@ -82,7 +82,7 @@ inputForm :: Int -> Form Int () ResourceName
 inputForm = newForm [(str "Choice: " <+>)
                        @@= editShowableField (lens id (flip const)) ChoiceSelection]
 
-runGUI :: Show s => Network s -> IO ()
+runGUI :: Show s => Network [] s -> IO ()
 runGUI n = void $ defaultMain renderNetworkApp initialState
   where
     initialState = AppState {

@@ -1,14 +1,13 @@
 module NetSim.SimpleClientServer where
 
 import NetSim.Core
-import Control.Applicative
 
 data State = ClientInit NodeID
             | ClientDone Int
             | Server Int
             deriving Show
 
-queryServer :: Protlet State
+queryServer :: Protlet f State
 queryServer = RPC "Query" cstep sstep
   where
     cstep :: ClientStep State
@@ -21,7 +20,7 @@ queryServer = RPC "Query" cstep sstep
       Server n -> pure ([n], state)
       _ -> empty
 
-initNetwork :: Network State
+initNetwork :: Network f State
 initNetwork = initializeNetwork nodes [queryServer]
   where
     client0 = 0

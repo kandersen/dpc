@@ -15,7 +15,7 @@ data State = CoordinatorInit [NodeID]
            | ParticipantAbort NodeID
            deriving Show
 
-prepare :: Protlet State
+prepare :: Alternative f => Protlet f State
 prepare = Broadcast "Prepare" coordinatorBroadcast participantReceive participantSend
   where
     coordinatorBroadcast = \case
@@ -46,7 +46,7 @@ prepare = Broadcast "Prepare" coordinatorBroadcast participantReceive participan
       _msgTo = coordinator
       }
 
-decide :: Protlet State
+decide :: Alternative f => Protlet f State
 decide = Broadcast "Decide" coordinatorBroadcast participantReceive participantRespond
   where
     coordinatorBroadcast = \case
@@ -80,7 +80,7 @@ decide = Broadcast "Decide" coordinatorBroadcast participantReceive participantR
       _msgTo = coordinator
       }
 
-initNetwork :: Network State
+initNetwork :: Alternative f => Network f State
 initNetwork = initializeNetwork nodes protlets
   where
     nodes = [ (0, CoordinatorInit [1,2,3])

@@ -15,7 +15,7 @@ ppMessage Message{..} = concat [
   , ")"
   ]
 
-ppProtocol :: Protlet s -> String
+ppProtocol :: Protlet f s -> String
 ppProtocol (RPC name _ _) =
     unwords [ "RPC(", name, ")" ]
 ppProtocol (ARPC name _ _ _) =
@@ -25,5 +25,5 @@ ppProtocol (Notification name _ _) =
 ppProtocol (Broadcast name _ _ _) =
     unwords [ "BroadcastQourom(", name, ")" ]
 
-ppNetwork :: (s -> String) -> Network s -> String
+ppNetwork :: (s -> String) -> Network f s -> String
 ppNetwork _ _ = "Network"
