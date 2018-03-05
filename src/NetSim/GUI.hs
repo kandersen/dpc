@@ -3,6 +3,8 @@
 module NetSim.GUI where
 
 import NetSim.Core
+import NetSim.PrettyPrint
+
 import Brick
 import Brick.Forms
 import Brick.Main
@@ -55,19 +57,23 @@ enableMouse = do
 
 renderNode :: Show s => (NodeID, NodeState s, [Message]) -> Widget ResourceName
 renderNode (nodeID, state, inbox) =
-  borderWithLabel (str $ "Node " ++ show nodeID) $
-    center (str $ show state)
-    <=> center (str $ show inbox)
+  borderWithLabel (str $ "Node " ++ show nodeID) $ vBox
+    [ borderWithLabel (str "State") (str $ show state),
+      borderWithLabel (str "Inbox") (vBox $ str . ppMessage <$> inbox)]
 
 renderNetwork :: Show s => AppState s -> [Widget ResourceName]
 renderNetwork AppState{..} = return $
-  withBorderStyle unicode $
-    vBox (renderNode <$> [ (nodeID, state, inbox) |
-                           (nodeID, state) <- Map.toList $ _states _network,
-                           (nodeID', inbox) <- Map.toList $ _inboxes _network,
-                           nodeID == nodeID'])
+  withBorderStyle unicode $ vBox $ vCenter . hBox . fmap (center . renderNode) $  (groupsOf 2 [ (nodeID, state, inbox) |
+                                                                                                (nodeID, state) <- Map.toList $ _states _network,
+                                                                                                (nodeID', inbox) <- Map.toList $ _inboxes _network,
+                                                                                                nodeID == nodeID' ])
     <=> vBox (fmap (str . show) _transitions)
     <=> renderForm _form
+
+groupsOf :: Int -> [a] -> [[a]]
+groupsOf n xs = case Prelude.splitAt n xs of
+  (grp, []) -> [grp]
+  (grp, xs') -> grp : groupsOf n xs'
 
 renderNetworkApp :: Show s => App (AppState s) () ResourceName
 renderNetworkApp = App {
