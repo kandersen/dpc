@@ -3,8 +3,8 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE TupleSections #-}
 module NetSim.Core (
-    module NetSim.Core
-  , module Control.Applicative
+  module NetSim.Core,
+  module Control.Applicative
   ) where
 
 import NetSim.Util

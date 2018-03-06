@@ -1,6 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
-module NetSim.TwoPhaseCommit where
+module NetSim.TwoPhaseCommit(
+  initNetwork
+  ) where
 
 import NetSim.Core
 

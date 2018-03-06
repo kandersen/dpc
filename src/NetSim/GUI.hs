@@ -1,6 +1,9 @@
-{-# LANGUAGE RecordWildCards, TemplateHaskell #-}
+{-# LANGUAGE RecordWildCards #-}
+--{-# LANGUAGE TemplateHaskell #-}
 
-module NetSim.GUI where
+module NetSim.GUI (
+  runGUI
+  ) where
 
 import NetSim.Core
 import NetSim.PrettyPrint
@@ -15,7 +18,6 @@ import Control.Monad (void, when)
 import Graphics.Vty
 import Control.Monad.IO.Class
 import Lens.Micro
-import Lens.Micro.TH
 
 import Data.Map as Map
 
@@ -27,7 +29,7 @@ data AppState s = AppState {
   _transitions :: [Transition s],
   _form :: Form Int () ResourceName
   }
-makeLenses ''AppState
+--makeLenses ''AppState
 
 handleEvent :: Show s => AppState s -> BrickEvent ResourceName () -> EventM ResourceName (Next (AppState s))
 handleEvent as (VtyEvent (EvKey KEsc _)) = halt as
@@ -63,10 +65,10 @@ renderNode (nodeID, state, inbox) =
 
 renderNetwork :: Show s => AppState s -> [Widget ResourceName]
 renderNetwork AppState{..} = return $
-  withBorderStyle unicode $ vBox $ vCenter . hBox . fmap (center . renderNode) $  (groupsOf 2 [ (nodeID, state, inbox) |
-                                                                                                (nodeID, state) <- Map.toList $ _states _network,
-                                                                                                (nodeID', inbox) <- Map.toList $ _inboxes _network,
-                                                                                                nodeID == nodeID' ])
+  withBorderStyle unicode $ vBox (vCenter . hBox <$> groupsOf 2 [ center . renderNode $ (nodeID, state, inbox) |
+                                                                   (nodeID, state) <- Map.toList $ _states _network,
+                                                                   (nodeID', inbox) <- Map.toList $ _inboxes _network,
+                                                                   nodeID == nodeID' ])
     <=> vBox (fmap (str . show) _transitions)
     <=> renderForm _form
 
