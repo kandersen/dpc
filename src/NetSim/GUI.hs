@@ -31,9 +31,8 @@ data AppState m s = AppState {
   _transitions :: [Transition s],
   _form :: Form Int () ResourceName,
   _metadata :: m,
-  _invariant :: Invariant m s
+  _invariant :: Invariant m s Bool
   }
---makeLenses ''AppState
 
 handleEvent :: Show s => AppState m s -> BrickEvent ResourceName () -> EventM ResourceName (Next (AppState m s))
 handleEvent as (VtyEvent (EvKey KEsc _)) = halt as
@@ -75,8 +74,10 @@ renderNetwork AppState{..} = return $
                                                                    (nodeID, state) <- Map.toList $ _states _network,
                                                                    (nodeID', inbox) <- Map.toList $ _inboxes _network,
                                                                    nodeID == nodeID' ])
-    <=> borderWithLabel (str "Choices") (vBox (fmap (str . show) _transitions))
-    <=> renderForm _form
+    <=> borderWithLabel (str "Choices") 
+          (vBox (fmap (str . show) _transitions))
+    <=> borderWithLabel (str "Make a choice by pressing enter while the field reads <n> for 1 to # of options")
+          (renderForm _form)
 
 groupsOf :: Int -> [a] -> [[a]]
 groupsOf n xs = case Prelude.splitAt n xs of
@@ -91,13 +92,12 @@ renderNetworkApp = App {
   appStartEvent = \s -> enableMouse >> return s,
   appAttrMap = const $ attrMap Graphics.Vty.defAttr []
   }
-  
 
 inputForm :: Int -> Form Int () ResourceName
 inputForm = newForm [(str "Choice: " <+>)
                        @@= editShowableField (lens id (flip const)) ChoiceSelection]
 
-runGUI :: Show s => Network [] s -> Invariant m s -> m -> IO ()
+runGUI :: Show s => Network [] s -> Invariant m s Bool -> m -> IO ()
 runGUI n inv meta = void $ defaultMain renderNetworkApp initialState
   where
     initialState = AppState {

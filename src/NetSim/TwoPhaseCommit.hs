@@ -93,37 +93,42 @@ data TPCMetaData = TPCMetaData {
   _participants :: [NodeID]
 }
 
-type Invariant m s = forall f. (m, Network f s) -> Bool
+type Invariant m s a = forall f. (m, Network f s) -> a
 
-(<||>) :: Invariant m s -> Invariant m s -> Invariant m s
+(<||>) :: Invariant m s Bool -> Invariant m s Bool -> Invariant m s Bool
 l <||> r = (||) <$> l <*> r
 
-(<&&>) :: Invariant m s -> Invariant m s -> Invariant m s
+(<&&>) :: Invariant m s Bool -> Invariant m s Bool -> Invariant m s Bool
 l <&&> r = (&&) <$> l <*> r
 
-tpcInvariant :: Invariant TPCMetaData State
+tpcInvariant :: Invariant TPCMetaData State Bool
 tpcInvariant = everythingInit <||> phaseOneInv <||> phaseTwoInv
 
-forNode :: NodeID -> ((NodeID, NodeState State, [Message]) -> Invariant TPCMetaData State) -> Invariant TPCMetaData State
+forNode :: NodeID -> ((NodeID, NodeState s, [Message]) -> Invariant m s Bool) -> Invariant m s Bool
 forNode nodeID p (meta, network) = p node (meta, network)
   where
     node = (nodeID, _states network Map.! nodeID, _inboxes network Map.! nodeID)
 
-forNodes :: [NodeID] ->(NodeID -> Invariant TPCMetaData State) -> Invariant TPCMetaData State
+forNodes :: [NodeID] -> (NodeID -> Invariant TPCMetaData State Bool) -> Invariant TPCMetaData State Bool
 forNodes nodes p = and . sequence (p <$> nodes)
 
-noOutstandingMessagesBetween :: NodeID -> NodeID -> Invariant TPCMetaData State
+noOutstandingMessagesBetween :: NodeID -> NodeID -> Invariant m s Bool
 noOutstandingMessagesBetween a b = forNode a (nothingFrom b) <&&> forNode b (nothingFrom a)
   where
     nothingFrom other (_, _, inbox) = pure $ not . any ((== other) . _msgFrom) $ inbox
 
-runningInState :: State -> NodeID -> Invariant TPCMetaData State
+noMessagesAtFrom :: NodeID -> NodeID -> Invariant m s Bool
+noMessagesAtFrom at from = forNode at nothingFrom
+  where
+    nothingFrom (_, _, inbox) = pure . not . any ((==from) . _msgFrom) $ inbox
+
+runningInState :: State -> NodeID -> Invariant TPCMetaData State Bool
 runningInState s node = forNode node inState 
   where
     inState (_, Running s', _) = pure $ s == s'
     inState _ = pure False
 
-everythingInit :: Invariant TPCMetaData State
+everythingInit :: Invariant TPCMetaData State Bool
 everythingInit network = runningInState (CoordinatorInit participants) coordinator
                     <&&> forNodes participants (noOutstandingMessagesBetween coordinator)
                     <&&> forNodes participants (runningInState ParticipantInit)
@@ -132,10 +137,27 @@ everythingInit network = runningInState (CoordinatorInit participants) coordinat
     coordinator = _coordinator . fst $ network
     participants = _participants . fst $ network
 
-phaseOneInv :: Invariant TPCMetaData State
-phaseOneInv = const False
+phaseOneInv :: Invariant TPCMetaData State Bool
+phaseOneInv = do
+  participants <- getParticipants
+  forNodes participants phaseOneParticipant
 
-phaseTwoInv :: Invariant TPCMetaData State
+getCoordinator :: Invariant TPCMetaData s NodeID
+getCoordinator = _coordinator . fst
+
+getParticipants :: Invariant TPCMetaData s [NodeID]
+getParticipants = _participants . fst
+
+phaseOnePtBeforePrep :: NodeID -> Invariant TPCMetaData State Bool
+phaseOnePtBeforePrep node = 
+  runningInState ParticipantInit node
+  <&&> (noMessagesAtFrom node =<< getCoordinator)
+
+
+phaseOneParticipant :: NodeID -> Invariant TPCMetaData State Bool
+phaseOneParticipant = phaseOnePtBeforePrep
+
+phaseTwoInv :: Invariant TPCMetaData State Bool
 phaseTwoInv = const False
 
 initNetwork :: Alternative f => Network f State
