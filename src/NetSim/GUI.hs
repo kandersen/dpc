@@ -91,6 +91,7 @@ renderNetworkApp = App {
   appStartEvent = \s -> enableMouse >> return s,
   appAttrMap = const $ attrMap Graphics.Vty.defAttr []
   }
+  
 
 inputForm :: Int -> Form Int () ResourceName
 inputForm = newForm [(str "Choice: " <+>)
