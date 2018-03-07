@@ -1,10 +1,16 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RankNTypes #-}
 module NetSim.TwoPhaseCommit(
-  initNetwork
+  initNetwork,
+  initNetworkMetadata,
+  tpcInvariant,
+  main,
+  Invariant
   ) where
 
 import NetSim.Core
+import qualified Data.Map as Map
 
 data State = CoordinatorInit [NodeID]
            | CoordinatorCommit [NodeID]
@@ -15,7 +21,7 @@ data State = CoordinatorInit [NodeID]
            | ParticipantRespondedNo NodeID
            | ParticipantCommit NodeID
            | ParticipantAbort NodeID
-           deriving Show
+           deriving (Show, Eq)
 
 prepare :: Alternative f => Protlet f State
 prepare = Broadcast "Prepare" coordinatorBroadcast participantReceive participantSend
@@ -82,6 +88,56 @@ decide = Broadcast "Decide" coordinatorBroadcast participantReceive participantR
       _msgTo = coordinator
       }
 
+data TPCMetaData = TPCMetaData {
+  _coordinator :: NodeID,
+  _participants :: [NodeID]
+}
+
+type Invariant m s = forall f. (m, Network f s) -> Bool
+
+(<||>) :: Invariant m s -> Invariant m s -> Invariant m s
+l <||> r = (||) <$> l <*> r
+
+(<&&>) :: Invariant m s -> Invariant m s -> Invariant m s
+l <&&> r = (&&) <$> l <*> r
+
+tpcInvariant :: Invariant TPCMetaData State
+tpcInvariant = everythingInit <||> phaseOneInv <||> phaseTwoInv
+
+forNode :: NodeID -> ((NodeID, NodeState State, [Message]) -> Invariant TPCMetaData State) -> Invariant TPCMetaData State
+forNode nodeID p (meta, network) = p node (meta, network)
+  where
+    node = (nodeID, _states network Map.! nodeID, _inboxes network Map.! nodeID)
+
+forNodes :: [NodeID] ->(NodeID -> Invariant TPCMetaData State) -> Invariant TPCMetaData State
+forNodes nodes p = and . sequence (p <$> nodes)
+
+noOutstandingMessagesBetween :: NodeID -> NodeID -> Invariant TPCMetaData State
+noOutstandingMessagesBetween a b = forNode a (nothingFrom b) <&&> forNode b (nothingFrom a)
+  where
+    nothingFrom other (_, _, inbox) = pure $ not . any ((== other) . _msgFrom) $ inbox
+
+runningInState :: State -> NodeID -> Invariant TPCMetaData State
+runningInState s node = forNode node inState 
+  where
+    inState (_, Running s', _) = pure $ s == s'
+    inState _ = pure False
+
+everythingInit :: Invariant TPCMetaData State
+everythingInit network = runningInState (CoordinatorInit participants) coordinator
+                    <&&> forNodes participants (noOutstandingMessagesBetween coordinator)
+                    <&&> forNodes participants (runningInState ParticipantInit)
+                       $ network
+  where
+    coordinator = _coordinator . fst $ network
+    participants = _participants . fst $ network
+
+phaseOneInv :: Invariant TPCMetaData State
+phaseOneInv = const False
+
+phaseTwoInv :: Invariant TPCMetaData State
+phaseTwoInv = const False
+
 initNetwork :: Alternative f => Network f State
 initNetwork = initializeNetwork nodes protlets
   where
@@ -91,3 +147,12 @@ initNetwork = initializeNetwork nodes protlets
             , (3, ParticipantInit)
             ]
     protlets = [prepare, decide]
+
+initNetworkMetadata :: TPCMetaData
+initNetworkMetadata = TPCMetaData {
+  _coordinator = 0,
+  _participants = [1, 2, 3]
+  }
+
+main :: IO ()
+main = print $ tpcInvariant (initNetworkMetadata, initNetwork :: Network Maybe State)

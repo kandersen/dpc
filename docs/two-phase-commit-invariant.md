@@ -1,3 +1,14 @@
+# Questions
+
+* What is this `next_data` that's mentioned all over the place?
+* What does the log track/enforce?
+
+# Consequences on simulation:
+
+  1. My simulation needs to be able to express the soup! Maybe... Or maybe, I can just inspect the _incomming messages_ field of each node. Add them all up and you have the undelivered part of the soup.
+  2. My protocol needs to speak of rounds.
+  3. My simulation has broadcasting as one atomic operation. The invariant below is more finegrained.
+
 # Top-Level Invariant
 
     Definition Inv (d : dstatelet) :=
@@ -6,23 +17,23 @@
        , exists next_data, PhaseOne d round next_data l
        | exists next_data, PhaseTwo d round next_data l].
 
-OK, So at any given instant, the protocol is in one of 3 states.
+OK, So at any given instant, the protocol is in one of 3 states:
+
+  1. The initial state
+  2. in phase 1, for some `round`
+  3. in phase 2, for some `round`
 
 # Initial State
 
     Definition EverythingInit (d : dstatelet) (round : nat) (l : Log) : Prop :=
       [/\ cn_state d (round, CInit) l &
-          forall pt, pt \in pts ->
-                [/\ pt_state d (round, PInit) l pt,
-                   no_msg_from_to pt cn (dsoup d) &
-                   no_msg_from_to cn pt (dsoup d)]].
+        forall pt, pt \in pts ->
+          [/\ pt_state d (round, PInit) l pt,
+              no_msg_from_to pt cn (dsoup d) &
+              no_msg_from_to cn pt (dsoup d)]].
 
   1. The coordinator is in the initial state `(round, CInit)`
   2. Every participant is the initial state `(round, PInit)` and there are no undelivered messages between participants and coordinators.
-
-Consequences on simulation:
-  1. My simulation needs to be able to express the soup! Maybe... Or maybe, I can just inspect the _incomming messages_ field of each node.
-  2. My protocol needs to speak of rounds.
 
 # Phase 1
 
@@ -45,22 +56,42 @@ One of the following must hold for a given participant `pt`:
 
   1. Participant is in state `(round, PInit)`, there are no undelivered messages to the coordinator from `pt` and there is a Prep Request message undelivered to the participant from the coordinator.
   2. Participant is in state `(round, PGotRequest)`, and there is mutually no undelivered messages between participants and coordinator.
-  3. Participant is in state `(round, RespondedYes)`
-  4. Participant is in state `(round, RespondedNo)`
+  3. Participant is in state `(round, RespondedYes)`, there is no message from the coordinator to the participant and the participant has sent `yes`
+  4. Participant is in state `(round, RespondedNo)`, there is no message from the coordinator to the participant and the participant has sent `no`
 
-    Definition pt_PhaseOneResponded (d : dstatelet) (round : nat) (next_data : data)
-               (l : Log) (committed : bool) (pt : nid) : Prop :=
-      [/\ no_msg_from_to cn pt (dsoup d), no_msg_from_to pt cn (dsoup d) &
-          if committed
-          then pt_state d (round, PRespondedYes next_data) l pt
-          else pt_state d (round, PRespondedNo next_data) l pt].
+```
+Definition pt_PhaseOneResponded (d : dstatelet) (round : nat) (next_data : data) (l : Log) (committed : bool) (pt : nid) : Prop :=
+  [/\ no_msg_from_to cn pt (dsoup d), no_msg_from_to pt cn (dsoup d) &
+      if committed
+        then pt_state d (round, PRespondedYes next_data) l pt
+        else pt_state d (round, PRespondedNo next_data) l pt].
+```
 
+All of the following must hold,
 
+  1. Mutually no outstanding messages between participant and coordinator
+  2. if `comiited`, then participant must be in the RespondedYes, otherwise No state
+
+```
 Definition pt_Init d round l pt :=
   [/\ pt_state d (round, PInit) l pt,
      no_msg_from_to pt cn (dsoup d) &
      no_msg_from_to cn pt (dsoup d)].
+```
 
+A participant in the initial state is in the `(round, PInit)` state and 
+
+  1. there are no outstanding messages between coordinator and the participant
+
+```
+Definition PhaseOne (d : dstatelet) (round : nat) (next_data : data) (l : Log) :=
+  (exists sent, cn_PhaseOneSend d round next_data l sent) \/
+  (exists recvd, cn_PhaseOneReceive d round next_data l recvd).
+```
+
+Phase One begins as soon as the coordinator sends the (first) prep message. My simulation sends all at once, so as soon as the prep is broadcast, participants move to phase one as well.
+
+```
 Definition cn_PhaseOneSend d round next_data l sent :=
     [/\ cn_state d (round, CSentPrep next_data sent) l,
      uniq sent, {subset sent <= pts} &
@@ -68,7 +99,11 @@ Definition cn_PhaseOneSend d round next_data l sent :=
                            if pt \in sent
                            then pt_PhaseOne d round next_data l pt
                            else pt_Init d round l pt].
+```
 
+As responses start coming back, the coordinator keeps track of who have responded. The ones that have are in phase one, or the participants have moved to having responded.
+
+```
 Definition cn_PhaseOneReceive d round next_data l recvd :=
      let rps := map fst recvd in
      [/\ cn_state d (round, CWaitPrepResponse next_data recvd) l,
@@ -77,10 +112,7 @@ Definition cn_PhaseOneReceive d round next_data l recvd :=
                    pt_PhaseOneResponded d round next_data l b pt &
       forall pt,   pt \in pts -> pt \notin rps ->
                    pt_PhaseOne d round next_data l pt].
-
-Definition PhaseOne (d : dstatelet) (round : nat) (next_data : data) (l : Log) :=
-  (exists sent, cn_PhaseOneSend d round next_data l sent) \/
-  (exists recvd, cn_PhaseOneReceive d round next_data l recvd).
+```
 
 # Phase 2
 
