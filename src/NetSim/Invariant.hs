@@ -1,39 +1,52 @@
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE RecordWildCards #-}
 module NetSim.Invariant where
 
 import NetSim.Core
 import qualified Data.Map as Map
+import Data.List (find)
+import Data.Maybe (isJust)
 
 type Invariant m s a = forall f. (m, Network f s) -> a
 
-(<||>) :: Invariant m s Bool -> Invariant m s Bool -> Invariant m s Bool
+(<||>) :: ((m, Network f s) -> Bool) -> ((m, Network f s) -> Bool) -> ((m, Network f s) -> Bool)
 l <||> r = (||) <$> l <*> r
 
 (<&&>) :: Invariant m s Bool -> Invariant m s Bool -> Invariant m s Bool
 l <&&> r = (&&) <$> l <*> r
 
-forNode :: NodeID -> ((NodeID, NodeState s, [Message]) -> Invariant m s Bool) -> Invariant m s Bool
+forNode :: NodeID -> ((NodeState s, [Message]) -> Invariant m s Bool) -> Invariant m s Bool
 forNode nodeID p (meta, network) = p node (meta, network)
   where
-    node = (nodeID, _states network Map.! nodeID, _inboxes network Map.! nodeID)
+    node = (_states network Map.! nodeID, _inboxes network Map.! nodeID)
 
 forNodes :: [NodeID] -> (NodeID -> Invariant m s Bool) -> Invariant m s Bool
 forNodes nodes p = and . sequence (p <$> nodes)
 
 noOutstandingMessagesBetween :: NodeID -> NodeID -> Invariant m s Bool
 noOutstandingMessagesBetween a b = 
-  noMessagesAtFrom a b <&&> noMessagesAtFrom b a
+  noMessageFromTo a b <&&> noMessageFromTo b a
 
-noMessagesAtFrom :: NodeID -> NodeID -> Invariant m s Bool
-noMessagesAtFrom at from = forNode at nothingFrom
+noMessageFromTo :: NodeID -> NodeID -> Invariant m s Bool
+noMessageFromTo from to = forNode to nothingFrom
   where
-    nothingFrom (_, _, inbox) = pure . not . any ((==from) . _msgFrom) $ inbox
+    nothingFrom (_, inbox) = pure . not . any ((==from) . _msgFrom) $ inbox
 
 messageAt :: NodeID -> String -> [Int] -> NodeID -> Invariant m s Bool
-messageAt at tag body from = undefined
+messageAt at tag body from = forNode at check
+  where
+    isRight Message{..} = _msgTag == tag && _msgFrom == from && _msgBody == body
+    check (_, inbox) = pure . isJust $ find isRight inbox
 
 runningInState :: Eq s => s -> NodeID -> Invariant m s Bool
 runningInState s node = forNode node inState 
   where
-    inState (_, Running s', _) = pure $ s == s'
+    inState (Running s', _) = pure $ s == s'
+    inState _ = pure False
+
+blockingOn :: String -> NodeID -> ([Message] -> Invariant m s Bool) -> Invariant m s Bool
+blockingOn tag node responseHandler = forNode node inState
+  where
+    inState (BlockingOn t waitingFor _, inbox) = (pure $ t == tag) <&&> 
+      (responseHandler $ filter (\m -> _msgFrom m `elem` waitingFor && _msgTag m == t) inbox)
     inState _ = pure False

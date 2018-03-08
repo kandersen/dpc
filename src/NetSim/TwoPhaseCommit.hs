@@ -10,6 +10,8 @@ module NetSim.TwoPhaseCommit(
 import NetSim.Core
 import NetSim.Invariant
 
+import Control.Monad (forM)
+
 data State = CoordinatorInit [NodeID]
            | CoordinatorCommit [NodeID]
            | CoordinatorAbort [NodeID]
@@ -129,8 +131,8 @@ forCoordinator predicate = do
 
 tpcInvariant :: Invariant TPCMetaData State Bool
 tpcInvariant = everythingInit 
-          <||> phaseOneInv
-          <||> phaseTwoInv
+          <||> phaseOne
+          <||> phaseTwo
 
 -- # Initial State
 
@@ -148,15 +150,44 @@ everythingInit = do
 participantPhaseOne :: NodeID -> Invariant TPCMetaData State Bool
 participantPhaseOne pt = do
   cn <- getCoordinator 
-  runningInState (ParticipantGotRequest cn) pt
-    <&&> noMessagesAtFrom cn pt
-    <&&> messageAt pt "Prepare__Broadcast" [] cn
+  foldr1 (<||>) [
+    runningInState ParticipantInit pt
+    <&&> noMessageFromTo pt cn
+    <&&> messageAt pt "Prepare__Broadcast" [] cn,
 
-phaseOneInv :: Invariant TPCMetaData State Bool
-phaseOneInv = 
+    runningInState (ParticipantGotRequest cn) pt
+    <&&> noOutstandingMessagesBetween pt cn,
+
+    runningInState (ParticipantRespondedYes cn) pt
+    <&&> noMessageFromTo cn pt
+    <&&> messageAt cn "Prepare__Response" [1] pt,
+
+    runningInState (ParticipantRespondedNo cn) pt
+    <&&> noMessageFromTo cn pt
+    <&&> messageAt cn "Prepare__Response" [0] pt
+    ]
+
+participantPhaseOneResponded :: Bool -> NodeID -> Invariant TPCMetaData State Bool
+participantPhaseOneResponded comitted pt = do
+  cn <- getCoordinator
+  noMessageFromTo cn pt <&&>
+    if comitted
+      then runningInState (ParticipantRespondedYes cn) pt
+      else runningInState (ParticipantRespondedNo cn) pt
+
+coordinatorPhaseOne :: NodeID -> Invariant TPCMetaData State Bool
+coordinatorPhaseOne cn = 
+  blockingOn "Prepare__Response" cn (\responses -> 
+      and <$> forM responses (\Message{..} ->
+        participantPhaseOneResponded (_msgBody == [1]) _msgFrom))
+
+
+phaseOne :: Invariant TPCMetaData State Bool
+phaseOne =
+  forCoordinator coordinatorPhaseOne <&&>
   forallParticipants participantPhaseOne
 
 -- # Phase 2
 
-phaseTwoInv :: Invariant TPCMetaData State Bool
-phaseTwoInv = const False
+phaseTwo :: Invariant TPCMetaData State Bool
+phaseTwo = const False
