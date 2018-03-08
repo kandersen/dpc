@@ -6,6 +6,7 @@ module NetSim.GUI (
   ) where
 
 import NetSim.Core
+import NetSim.Invariant
 import NetSim.PrettyPrint
 
 import Brick
