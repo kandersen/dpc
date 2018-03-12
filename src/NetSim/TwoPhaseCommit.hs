@@ -35,7 +35,6 @@ prepare = Broadcast "Prepare" coordinatorBroadcast participantReceive participan
       then CoordinatorAbort participants
       else CoordinatorCommit participants
 
-    participantReceive :: Message -> State -> Maybe State
     participantReceive Message{..} = \case
       ParticipantInit ->
         pure $ ParticipantGotRequest _msgFrom
@@ -70,8 +69,8 @@ decide = Broadcast "Decide" coordinatorBroadcast participantReceive participantR
                                             pure $ ParticipantAbort coordinator
                                           | [1] <- _msgBody ->
                                             pure $ ParticipantCommit coordinator
-      ParticipantRespondedNo coordinator |  [_] <- _msgBody ->
-                                           pure $ ParticipantAbort coordinator
+      ParticipantRespondedNo coordinator  |  [_] <- _msgBody ->
+                                            pure $ ParticipantAbort coordinator
       _ -> empty
 
     participantRespond nodeID = \case
@@ -110,18 +109,20 @@ data TPCMetaData = TPCMetaData {
   }
 
 -- Invariant Utilities
+type TPCInv = Invariant TPCMetaData State Bool
+
 getParticipants :: Invariant TPCMetaData s [NodeID]
 getParticipants = _participants . fst
 
 getCoordinator :: Invariant TPCMetaData s NodeID
 getCoordinator = _coordinator . fst
 
-forallParticipants :: (NodeID -> Invariant TPCMetaData s Bool) -> Invariant TPCMetaData s Bool
+forallParticipants :: (NodeID -> TPCInv) -> TPCInv
 forallParticipants predicate = do
   participants <- getParticipants
   forNodes participants predicate
 
-forCoordinator :: (NodeID -> Invariant TPCMetaData s Bool) -> Invariant TPCMetaData s Bool
+forCoordinator :: (NodeID -> TPCInv) -> TPCInv
 forCoordinator predicate = do
   coordinator <- getCoordinator
   forNodes [coordinator] predicate
@@ -129,25 +130,25 @@ forCoordinator predicate = do
 
 -- # Top-Level Invariant
 
-tpcInvariant :: Invariant TPCMetaData State Bool
+tpcInvariant :: TPCInv
 tpcInvariant = everythingInit 
           <||> phaseOne
           <||> phaseTwo
 
 -- # Initial State
 
-everythingInit :: Invariant TPCMetaData State Bool
+everythingInit :: TPCInv
 everythingInit = do
   coordinator <- getCoordinator
   participants <- getParticipants
   forCoordinator (runningInState (CoordinatorInit participants))
-    <&&> forallParticipants (\pt -> 
+    <&&> forallParticipants (\pt ->
            noOutstandingMessagesBetween coordinator pt
-           <&&> runningInState ParticipantInit pt)
+             <&&> runningInState ParticipantInit pt)
 
 -- # Phase 1
 
-participantPhaseOne :: NodeID -> Invariant TPCMetaData State Bool
+participantPhaseOne :: NodeID -> TPCInv
 participantPhaseOne pt = do
   cn <- getCoordinator 
   foldr1 (<||>) [
@@ -167,7 +168,7 @@ participantPhaseOne pt = do
     <&&> messageAt cn "Prepare__Response" [0] pt
     ]
 
-participantPhaseOneResponded :: Bool -> NodeID -> Invariant TPCMetaData State Bool
+participantPhaseOneResponded :: Bool -> NodeID -> TPCInv
 participantPhaseOneResponded comitted pt = do
   cn <- getCoordinator
   noMessageFromTo cn pt <&&>
@@ -175,19 +176,60 @@ participantPhaseOneResponded comitted pt = do
       then runningInState (ParticipantRespondedYes cn) pt
       else runningInState (ParticipantRespondedNo cn) pt
 
-coordinatorPhaseOne :: NodeID -> Invariant TPCMetaData State Bool
+coordinatorPhaseOne :: NodeID -> TPCInv
 coordinatorPhaseOne cn = 
-  blockingOn "Prepare__Response" cn (\responses -> 
+  blockingOn "Prepare__Response" cn $ \responses ->
       and <$> forM responses (\Message{..} ->
-        participantPhaseOneResponded (_msgBody == [1]) _msgFrom))
+        participantPhaseOneResponded (_msgBody == [1]) _msgFrom)
 
 
-phaseOne :: Invariant TPCMetaData State Bool
+phaseOne :: TPCInv
 phaseOne =
   forCoordinator coordinatorPhaseOne <&&>
   forallParticipants participantPhaseOne
 
 -- # Phase 2
 
-phaseTwo :: Invariant TPCMetaData State Bool
+participantPhaseTwoCommit :: NodeID -> TPCInv
+participantPhaseTwoCommit pt = do
+  cn <- getCoordinator
+  foldr1 (<||>) [
+    runningInState (ParticipantRespondedYes cn) pt
+    <&&> messageAt pt "Decide__Broadcast" [] cn
+    <&&> noMessageFromTo pt cn,
+
+    runningInState (ParticipantCommit cn) pt
+    <&&> noOutstandingMessagesBetween cn pt,
+
+    runningInState (ParticipantInit) pt
+    <&&> noMessageFromTo cn pt
+    <&&> messageAt cn "Decide__Response" [1] pt
+    ]
+
+participantPhaseTwoAbort :: NodeID -> TPCInv
+participantPhaseTwoAbort pt = do
+  cn <- getCoordinator
+  foldr1 (<||>) [
+    (runningInState (ParticipantRespondedYes cn) pt <||>
+      runningInState (ParticipantRespondedNo cn) pt)
+    <&&> messageAt pt "Decide__Broadcast" [] cn
+    <&&> noMessageFromTo pt cn,
+
+    runningInState (ParticipantAbort cn) pt
+    <&&> noOutstandingMessagesBetween cn pt,
+
+    runningInState (ParticipantInit) pt
+    <&&> noMessageFromTo cn pt
+    <&&> messageAt cn "Decide__Response" [0] pt
+    ]
+
+participantPhaseTwoResponded :: Bool -> NodeID -> TPCInv
+participantPhaseTwoResponded b pt = do
+  cn <- getCoordinator
+  noOutstandingMessagesBetween cn pt <&&>
+    runningInState ParticipantInit pt
+
+coordinatorPhaseTwoSendCommits = undefined
+
+phaseTwo :: TPCInv
 phaseTwo = const False
