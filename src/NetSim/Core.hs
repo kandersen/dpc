@@ -36,7 +36,7 @@ instance Show s => Show (NodeState s) where
   show (BlockingOn rpc from _) =
     unwords ["BlockingOn", rpc, show from, "<Continuation>"]
 
---                              Name   Initiateor     Recipient(s)
+--                              Name   Initiator     Recipient(s)
 data Protlet f s = RPC          String (ClientStep s) (ServerStep s)
                  | ARPC         String (ClientStep s) (Receive s) (Send f s)
                  | Notification String (Send f s)     (Receive s)
