@@ -1,8 +1,20 @@
+Dynamic Invariants:
+  ✔ Dynamic invariant assertion in the simulator (in bool) @done (18-03-13 20:30)
+
 Code Generation:
   ✔ Basic notion of codegeneration in place @done (18-03-13 20:23)
   ☐ Build a pure runner that also advances the protocol
   ☐ Build an IO runner that actually races threads
   ☐ Try simple case studies for implementation once a runner is in place
+  ☐ From Protlet to Code stubs:
+    ☐ Encapsulate blocking receive via tail-recursive loop
+      Presumably when in the `Running` protocol state
+    ☐ Running Example: two calculators in one protocol (addition and multiplication) and computing polynomials
+
+Protlet Constructor:
+  Wait for the response from N>1 nodes of a certain kind (multi/broadcast --> Receive from qurom)
+  ✔ Two-phase Commit @done (18-03-13 20:29)
+  ☐ Single Decree Paxos
 
 Two Phase Commit:
   ✔ Basic implementation of invariant @done (18-03-13 17:21)
