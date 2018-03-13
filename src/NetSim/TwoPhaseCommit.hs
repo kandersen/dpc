@@ -195,7 +195,7 @@ participantPhaseTwoCommit pt = do
   cn <- getCoordinator
   foldr1 (<||>) [
     runningInState (ParticipantRespondedYes cn) pt
-    <&&> messageAt pt "Decide__Broadcast" [] cn
+    <&&> messageAt pt "Decide__Broadcast" [1] cn
     <&&> noMessageFromTo pt cn,
 
     runningInState (ParticipantCommit cn) pt
@@ -212,7 +212,7 @@ participantPhaseTwoAbort pt = do
   foldr1 (<||>) [
     (runningInState (ParticipantRespondedYes cn) pt <||>
       runningInState (ParticipantRespondedNo cn) pt)
-    <&&> messageAt pt "Decide__Broadcast" [] cn
+    <&&> messageAt pt "Decide__Broadcast" [0] cn
     <&&> noMessageFromTo pt cn,
 
     runningInState (ParticipantAbort cn) pt
@@ -223,13 +223,41 @@ participantPhaseTwoAbort pt = do
     <&&> messageAt cn "Decide__Response" [0] pt
     ]
 
-participantPhaseTwoResponded :: Bool -> NodeID -> TPCInv
-participantPhaseTwoResponded b pt = do
-  cn <- getCoordinator
-  noOutstandingMessagesBetween cn pt <&&>
-    runningInState ParticipantInit pt
+coordinatorPhaseTwoSendAborts :: NodeID -> TPCInv
+coordinatorPhaseTwoSendAborts cn = do
+  participants <- getParticipants
+  runningInState (CoordinatorAbort participants) cn <&&>
+    (or <$> forM participants 
+              (runningInState (ParticipantRespondedNo cn)))
 
-coordinatorPhaseTwoSendCommits = undefined
+coordinatorPhaseTwoReceiveAborts :: NodeID -> TPCInv
+coordinatorPhaseTwoReceiveAborts cn =
+  blockingOn "Decide__Response" cn $ \_ -> 
+    forallParticipants participantPhaseTwoAbort
+
+coordinatorPhaseTwoSendCommits :: NodeID -> TPCInv
+coordinatorPhaseTwoSendCommits cn = do
+  participants <- getParticipants
+  runningInState (CoordinatorCommit participants) cn <&&>
+    (and <$> forM participants 
+              (runningInState (ParticipantRespondedYes cn)))
+
+coordinatorPhaseTwoReceiveCommits :: NodeID -> TPCInv
+coordinatorPhaseTwoReceiveCommits cn =
+  blockingOn "Decide__Response" cn $ \_ -> 
+    forallParticipants participantPhaseTwoCommit
+
+phaseTwoCommit :: TPCInv
+phaseTwoCommit = do
+  cn <- getCoordinator
+  coordinatorPhaseTwoSendCommits cn <||>
+    coordinatorPhaseTwoReceiveCommits cn
+
+phaseTwoAbort :: TPCInv
+phaseTwoAbort = do
+  cn <- getCoordinator
+  coordinatorPhaseTwoSendAborts cn <||>
+    coordinatorPhaseTwoReceiveAborts cn
 
 phaseTwo :: TPCInv
-phaseTwo = const False
+phaseTwo = phaseTwoCommit <||> phaseTwoAbort  
