@@ -3,13 +3,16 @@ Dynamic Invariants:
 
 Code Generation:
   ✔ Basic notion of codegeneration in place @done (18-03-13 20:23)
-  ☐ Build a pure runner that also advances the protocol    @started(18-03-14 16:57)
+  ✔ Build a pure runner     @started(18-03-14 16:57) @done (18-03-15 22:15) @lasted(1 day, 5:18)
+    ☐ Make it also advance the procol?
   ☐ Build an IO runner that actually races threads
   ☐ Try simple case studies for implementation once a runner is in place
+  ☐ Include the notion of label in the programming language so we can run in multiple protocols
   ☐ From Protlet to Code stubs:
-    ☐ Encapsulate blocking receive via tail-recursive loop
+    ✔ Encapsulate blocking receive via tail-recursive loop @done (18-03-15 22:19)
       Presumably when in the `Running` protocol state
     ☐ Running Example: two calculators in one protocol (addition and multiplication) and computing polynomials
+
 
 Protlet Constructor:
   Wait for the response from N>1 nodes of a certain kind (multi/broadcast --> Receive from qurom)

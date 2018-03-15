@@ -29,41 +29,22 @@ rpcCall protlet body to = do
   (_, resp, _) <- spinReceive [protlet ++ "__Response"]
   return resp
 
-arpcReceive :: MonadDiSeL m =>
-  String -> m (String, [Int], NodeID)
-arpcReceive protlet = do 
-  spinForRequest
-  where
-    spinForRequest = do
-      mreq <- receive [protlet ++ "__Request"]
-      case mreq of
-        Nothing -> spinForRequest
-        Just req -> return req
-
-arpcRespond :: MonadDiSeL m =>
-  String -> [Int] -> NodeID -> m ()
-arpcRespond protlet = send (protlet ++ "__Response")
-
 broadcast :: (MonadDiSeL m) =>
   String -> [Int] -> [NodeID] -> m [(String, [Int], NodeID)]
 broadcast protlet body receivers = do
   sendBroadcasts receivers
-  spinForResponses Map.empty receivers
+  spinForResponses [] receivers
   where
     sendBroadcasts [] = return ()
     sendBroadcasts (r:rs) = do
       send (protlet ++ "__Broadcast") body r
       sendBroadcasts rs      
-    spinForResponses resps [] = return . format . Map.toList $ resps
+
+    spinForResponses resps [] = return resps
     spinForResponses resps rs = do
-      mresp <- receive [protlet ++ "__Response"]
-      case mresp of
-        Nothing -> spinForResponses resps rs
-        Just (tag, bod, sender) -> do
-          let rs' = filter (/= sender) rs
-          let resps' = Map.insert sender (tag, bod) resps
-          spinForResponses resps' rs'
-    format res = [(tag, bod, sender) | (sender, (tag, bod)) <- res ]
+      resp@(_, _, sender) <- spinReceive [protlet ++ "__Response"]
+      let rs' = filter (/= sender) rs
+      spinForResponses (resp:resps) rs'
 
 data DiSeL a = Pure a
              | forall b. Bind (DiSeL b) (b -> DiSeL a)
@@ -157,6 +138,28 @@ runPure initConf = go (cycle $ _confNodes initConf) initConf
       let conf' = conf { _confNodeStates = states', _confSoup = soup'' }
       ((mmsg, conf'):) <$> go schedule' $ conf'
 
+tpcCoordinator :: MonadDiSeL m => [NodeID] -> m a
+tpcCoordinator participants = do
+  resps <- broadcast "Prepare" [] participants
+  _ <- if any isReject resps
+    then broadcast "Decide" [0] participants
+    else broadcast "Decide" [1] participants
+  tpcCoordinator participants
+  where 
+    isReject (_, [0], _) = True
+    isReject          _  = False
+
+tpcClient :: MonadDiSeL m => Int -> Int -> m a
+tpcClient n b = do
+  (tag, body, server) <- spinReceive ["Prepare__Broadcast", "Decide__Broadcast"]
+  case (tag, body) of
+      ("Prepare__Broadcast", []) ->
+        if n `mod` b == 0
+        then send "Prepare__Response" [1] server
+        else send "Prepare__Response" [0] server
+  tpcClient (n + 1) b
+  
+  
 calculatorServer :: MonadDiSeL m => m a
 calculatorServer = do
   (_, [x, y], client) <- spinReceive ["Compute__Request"]
@@ -170,7 +173,7 @@ calculatorClient server = do
 
 calcConfiguration :: Configuration Int
 calcConfiguration = Configuration {
-  _confNodes = [0, 1],
+  _confNodes = [0, 1, 2],
   _confNodeStates = Map.fromList [
                         (0, calculatorServer)
                       , (1, calculatorClient 0)
