@@ -3,7 +3,7 @@ Dynamic Invariants:
 
 Code Generation:
   ✔ Basic notion of codegeneration in place @done (18-03-13 20:23)
-  ☐ Build a pure runner that also advances the protocol
+  ☐ Build a pure runner that also advances the protocol    @started(18-03-14 16:57)
   ☐ Build an IO runner that actually races threads
   ☐ Try simple case studies for implementation once a runner is in place
   ☐ From Protlet to Code stubs:
