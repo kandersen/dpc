@@ -12,7 +12,7 @@ Code Generation:
     ✔ Encapsulate blocking receive via tail-recursive loop @done (18-03-15 22:19)
       Presumably when in the `Running` protocol state
     ☐ Running Example: two calculators in one protocol (addition and multiplication) and computing polynomials
-    ☐ Paxos implementation using braodcast
+    ☐ Paxos implementation using broadcast
   ✔ Generalize broadcast to wait for a fraction of the responses @done (18-03-16 15:53)
 
 Protlet Constructor:
