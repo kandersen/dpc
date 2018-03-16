@@ -12,14 +12,25 @@ Code Generation:
     ✔ Encapsulate blocking receive via tail-recursive loop @done (18-03-15 22:19)
       Presumably when in the `Running` protocol state
     ☐ Running Example: two calculators in one protocol (addition and multiplication) and computing polynomials
-
+    ☐ Paxos implementation using braodcast
+  ✔ Generalize broadcast to wait for a fraction of the responses @done (18-03-16 15:53)
 
 Protlet Constructor:
   Wait for the response from N>1 nodes of a certain kind (multi/broadcast --> Receive from qurom)
   ✔ Two-phase Commit @done (18-03-13 20:29)
   ☐ Single Decree Paxos
+  ☐ Combinator for replicating a protocol across slots?
+    It comes up often, e.g. the paxos paper replicating the single slot register to n registers. If so we can run them in parallel
+    ☐ can the n+1th slot depend on the n previous, as needed to ensure a kind of consistency.
 
 Two Phase Commit:
   ✔ Basic implementation of invariant @done (18-03-13 17:21)
   ☐ Include the notion of round in the protocol + invariant
   ☐ Do a basic implementation using the code generation
+
+Thinking Work (Record in the Wiki, perhaps):
+ ☐ Where in the existing protlets is there room for parallelism?
+ ☐ Can we come up with a unsafe parallel composition of two protlet defined sub-processes? (What are the issues? Races?)
+ ☐ Are programs in parallel sub-protocols always possible to run in parallel?
+ ☐ What the notion of star/framing/ownership? Can we reuse Iris' idea of STS as PCM?
+ ☐ Can we give local, sequential specs for the language primitives

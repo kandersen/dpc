@@ -5,17 +5,23 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleInstances #-}
 module NetSim.Language where
 
 import NetSim.Core
 import qualified Data.Map as Map
 import Data.Map (Map)
+import Data.Foldable
+import Control.Monad.Reader
+import Control.Concurrent.Chan
+
+type Packet = (String, [Int], NodeID)
 
 class Monad m => MonadDiSeL m where
   send :: String -> [Int] -> NodeID -> m ()
-  receive :: [String] -> m (Maybe (String, [Int], NodeID))
+  receive :: [String] -> m (Maybe Packet)
 
-spinReceive :: MonadDiSeL m => [String] -> m (String, [Int], NodeID)
+spinReceive :: MonadDiSeL m => [String] -> m Packet
 spinReceive tags = do
     mmsg <- receive tags
     case mmsg of
@@ -29,27 +35,27 @@ rpcCall protlet body to = do
   (_, resp, _) <- spinReceive [protlet ++ "__Response"]
   return resp
 
+broadcastQuorom :: (MonadDiSeL m, Ord fraction, Fractional fraction) =>
+  fraction -> String -> [Int] -> [NodeID] -> m [Packet]
+broadcastQuorom fraction protlet body receivers = do
+  traverse_ (send (protlet ++ "__Broadcast") body) receivers
+  spinForResponses []
+  where    
+    spinForResponses resps 
+      | fromIntegral (length resps) >= fraction * fromIntegral (length receivers) =
+         return resps
+      | otherwise = do
+          resp <- spinReceive [protlet ++ "__Response"]
+          spinForResponses (resp:resps)
+
 broadcast :: (MonadDiSeL m) =>
-  String -> [Int] -> [NodeID] -> m [(String, [Int], NodeID)]
-broadcast protlet body receivers = do
-  sendBroadcasts receivers
-  spinForResponses [] receivers
-  where
-    sendBroadcasts [] = return ()
-    sendBroadcasts (r:rs) = do
-      send (protlet ++ "__Broadcast") body r
-      sendBroadcasts rs      
-
-    spinForResponses resps [] = return resps
-    spinForResponses resps rs = do
-      resp@(_, _, sender) <- spinReceive [protlet ++ "__Response"]
-      let rs' = filter (/= sender) rs
-      spinForResponses (resp:resps) rs'
-
+  String -> [Int] -> [NodeID] -> m [Packet]
+broadcast = broadcastQuorom (1 :: Double)
+ 
 data DiSeL a = Pure a
              | forall b. Bind (DiSeL b) (b -> DiSeL a)
              | Send String [Int] NodeID (DiSeL a)
-             | Receive [String] (Maybe (String, [Int], NodeID) -> DiSeL a)
+             | Receive [String] (Maybe Packet -> DiSeL a)
 
 ppDiSeL :: DiSeL a -> String
 ppDiSeL (Pure _) = "Pure <val>"
@@ -59,7 +65,7 @@ ppDiSeL (Receive tags _) = concat ["Receive(", show tags, ", <Cont>)"]
 
 instance Show a => Show (DiSeL a) where
   show (Pure a) = "Pure " ++ show a
-  show (Bind _ _) = concat ["Bind ma <Continuation>"]
+  show (Bind _ _) = "Bind ma <Continuation>"
   show (Send tag body nodeid k) = concat ["Send ", tag, show body, show nodeid, "(", show k, ")"]
   show (Receive tags _) = concat ["Receive ", show tags, " <Continuation>"]
 
@@ -116,7 +122,7 @@ data Configuration a = Configuration {
   deriving Show
 
 ppConf :: Show a => Configuration a -> String
-ppConf Configuration{..} = unlines $ concat ["Soup: ", show _confSoup] :
+ppConf Configuration{..} = unlines $ ("Soup: " ++ show _confSoup) :
    [ concat [show nodeid, ": ", ppDiSeL' state] | (nodeid, state) <- Map.toList _confNodeStates ]
   where
     ppDiSeL' (Pure a) = "Returned " ++ show a
@@ -138,13 +144,13 @@ runPure initConf = go (cycle $ _confNodes initConf) initConf
       let conf' = conf { _confNodeStates = states', _confSoup = soup'' }
       ((mmsg, conf'):) <$> go schedule' $ conf'
 
-tpcCoordinator :: MonadDiSeL m => [NodeID] -> m a
-tpcCoordinator participants = do
+tpcCoordinator :: MonadDiSeL m => Int -> [NodeID] -> m a
+tpcCoordinator n participants = do
   resps <- broadcast "Prepare" [] participants
   _ <- if any isReject resps
     then broadcast "Decide" [0] participants
     else broadcast "Decide" [1] participants
-  tpcCoordinator participants
+  tpcCoordinator (n + 1) participants
   where 
     isReject (_, [0], _) = True
     isReject          _  = False
@@ -187,3 +193,21 @@ stepThrough format (x:xs) = do
   putStrLn $ format x
   _ <- getLine
   stepThrough format xs
+
+type Runner = ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) IO
+
+instance MonadDiSeL Runner where
+  send tag body to = do
+    (this, _, channels) <- ask
+    lift $ writeChan (channels Map.! to) (tag, body, this)
+  receive tags = do
+    (_, inbox, _) <- ask
+    pkt@(tag, _, _) <- lift $ readChan inbox
+    if tag `elem` tags
+      then return $ Just pkt
+      else do
+        lift $ writeChan inbox pkt
+        return Nothing
+
+runNetworkIO :: [(NodeID, Runner a)] -> IO a
+runNetworkIO = undefined
