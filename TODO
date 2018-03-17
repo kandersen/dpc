@@ -5,7 +5,10 @@ Code Generation:
   ✔ Basic notion of codegeneration in place @done (18-03-13 20:23)
   ✔ Build a pure runner     @started(18-03-14 16:57) @done (18-03-15 22:15) @lasted(1 day, 5:18)
     ☐ Make it also advance the procol?
-  ☐ Build an IO runner that actually races threads
+  ✔ Build an IO runner that actually races threads @done (18-03-17 21:26)
+      preliminary version is done, and it can race the basic calculator example quite satisfactorily.
+      I anticipate more sophisticated refinements of this as the examples/case studies progress, but 
+      as of now it's actually working.
   ☐ Try simple case studies for implementation once a runner is in place
   ☐ Include the notion of label in the programming language so we can run in multiple protocols
   ☐ From Protlet to Code stubs:

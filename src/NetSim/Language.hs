@@ -6,6 +6,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TupleSections #-}
 module NetSim.Language where
 
 import NetSim.Core
@@ -210,7 +211,7 @@ instance MonadDiSeL Runner where
         lift $ writeChan inbox pkt
         return Nothing
 
-runNetworkIO :: Configuration Runner a -> IO [a]
+runNetworkIO :: Configuration Runner a -> IO [(NodeID, a)]
 runNetworkIO conf = do
   let network = Map.toList $ _confNodeStates conf
   envs <- sequence $ do
@@ -221,7 +222,7 @@ runNetworkIO conf = do
   let mapping = Map.fromList [(nodeID, inbox) | (nodeID, inbox, _) <- envs]
   output <- newChan
   sequence $ flip fmap network  $ \(nodeID, code) ->
-    void $ forkIO $ void $ runReaderT (code >>= epilogue output) (nodeID, mapping Map.! nodeID, mapping)
+    void $ forkIO $ void $ runReaderT (code >>= epilogue output . (nodeID,)) (nodeID, mapping Map.! nodeID, mapping)
   getChanContents output
 
   where
