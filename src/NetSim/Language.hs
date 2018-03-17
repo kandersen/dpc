@@ -210,4 +210,11 @@ instance MonadDiSeL Runner where
         return Nothing
 
 runNetworkIO :: [(NodeID, Runner a)] -> IO a
-runNetworkIO = undefined
+runNetworkIO network = do
+  envs <- (sequence :: [IO (NodeID, Chan Packet, Runner a)] -> IO [(NodeID, Chan Packet, Runner a)]) $ do
+    (nodeID, code) <- network
+    return $ do
+      inbox <- newChan
+      return (nodeID, inbox, code)
+  let mapping = Map.fromList [(nodeID, inbox) | (nodeID, inbox, _) <- envs]
+  undefined
