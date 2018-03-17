@@ -14,6 +14,7 @@ import Data.Map (Map)
 import Data.Foldable
 import Control.Monad.Reader
 import Control.Concurrent.Chan
+import Control.Concurrent
 
 type Packet = (String, [Int], NodeID)
 
@@ -114,21 +115,21 @@ pick p (x:xs) =
     then Just (x, xs)
     else (\(a, ys) -> (a, x:ys)) <$> pick p xs
 
-data Configuration a = Configuration {
+data Configuration m a = Configuration {
   _confNodes :: [NodeID],
-  _confNodeStates :: Map NodeID (DiSeL a),
+  _confNodeStates :: Map NodeID (m a),
   _confSoup :: [Message]
   }
   deriving Show
 
-ppConf :: Show a => Configuration a -> String
+ppConf :: Show a => Configuration DiSeL a -> String
 ppConf Configuration{..} = unlines $ ("Soup: " ++ show _confSoup) :
    [ concat [show nodeid, ": ", ppDiSeL' state] | (nodeid, state) <- Map.toList _confNodeStates ]
   where
     ppDiSeL' (Pure a) = "Returned " ++ show a
     ppDiSeL' a = ppDiSeL a
 
-runPure :: Configuration a -> [(Maybe Message, Configuration a)]
+runPure :: Configuration DiSeL a -> [(Maybe Message, Configuration DiSeL a)]
 runPure initConf = go (cycle $ _confNodes initConf) initConf
   where
     go     [] conf = [(Nothing, conf)]
@@ -172,18 +173,18 @@ calculatorServer = do
   send "Compute__Response" [x + y] client
   calculatorServer
 
-calculatorClient :: MonadDiSeL m => NodeID -> m Int
-calculatorClient server = do
-  [x] <- rpcCall "Compute" [40, 2] server
+calculatorClient :: MonadDiSeL m => Int -> Int -> NodeID -> m Int
+calculatorClient a b server = do
+  [x] <- rpcCall "Compute" [a, b] server
   return x
 
-calcConfiguration :: Configuration Int
+calcConfiguration :: MonadDiSeL m => Configuration m Int
 calcConfiguration = Configuration {
   _confNodes = [0, 1, 2],
   _confNodeStates = Map.fromList [
                         (0, calculatorServer)
-                      , (1, calculatorClient 0)
-                      , (2, calculatorClient 0) 
+                      , (1, calculatorClient 40 2 0)
+                      , (2, calculatorClient 100 11 0) 
                       ],
   _confSoup = []
 }
@@ -209,12 +210,20 @@ instance MonadDiSeL Runner where
         lift $ writeChan inbox pkt
         return Nothing
 
-runNetworkIO :: [(NodeID, Runner a)] -> IO a
-runNetworkIO network = do
-  envs <- (sequence :: [IO (NodeID, Chan Packet, Runner a)] -> IO [(NodeID, Chan Packet, Runner a)]) $ do
+runNetworkIO :: Configuration Runner a -> IO [a]
+runNetworkIO conf = do
+  let network = Map.toList $ _confNodeStates conf
+  envs <- sequence $ do
     (nodeID, code) <- network
     return $ do
       inbox <- newChan
       return (nodeID, inbox, code)
   let mapping = Map.fromList [(nodeID, inbox) | (nodeID, inbox, _) <- envs]
-  undefined
+  output <- newChan
+  sequence $ flip fmap network  $ \(nodeID, code) ->
+    void $ forkIO $ void $ runReaderT (code >>= epilogue output) (nodeID, mapping Map.! nodeID, mapping)
+  getChanContents output
+
+  where
+    epilogue :: Chan a -> a -> Runner ()
+    epilogue output a = liftIO $ writeChan output a
