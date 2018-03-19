@@ -2,6 +2,8 @@
 module NetSim.BatchCalculator where
 
 import NetSim.Core
+import NetSim.Language
+import qualified Data.Map as Map
 
 data PState = ClientInit NodeID NodeID Int Int
             | ClientDone Int
@@ -59,3 +61,25 @@ initNetwork = initializeNetwork nodes protlets
             , (6, ClientInit 6 0 100 1000)
             ]
     protlets = [computeProtocol]
+
+calculatorServer :: MonadDiSeL m => m a
+calculatorServer = do
+  (_, [x, y], client) <- spinReceive ["Compute__Request"]
+  send "Compute__Response" [x + y] client
+  calculatorServer
+
+calculatorClient :: MonadDiSeL m => Int -> Int -> NodeID -> m Int
+calculatorClient a b server = do
+  [x] <- rpcCall "Compute" [a, b] server
+  return x
+
+calcConfiguration :: MonadDiSeL m => Configuration m Int
+calcConfiguration = Configuration {
+  _confNodes = [0, 1, 2],
+  _confNodeStates = Map.fromList [
+                        (0, calculatorServer)
+                      , (1, calculatorClient 40 2 0)
+                      , (2, calculatorClient 100 11 0) 
+                      ],
+  _confSoup = []
+}

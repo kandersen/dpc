@@ -22,6 +22,7 @@ type Packet = (String, [Int], NodeID)
 class Monad m => MonadDiSeL m where
   send :: String -> [Int] -> NodeID -> m ()
   receive :: [String] -> m (Maybe Packet)
+  this :: m NodeID
 
 spinReceive :: MonadDiSeL m => [String] -> m Packet
 spinReceive tags = do
@@ -58,6 +59,7 @@ data DiSeL a = Pure a
              | forall b. Bind (DiSeL b) (b -> DiSeL a)
              | Send String [Int] NodeID (DiSeL a)
              | Receive [String] (Maybe Packet -> DiSeL a)
+             | This (NodeID -> DiSeL a)
 
 ppDiSeL :: DiSeL a -> String
 ppDiSeL (Pure _) = "Pure <val>"
@@ -90,23 +92,26 @@ instance Monad DiSeL where
 instance MonadDiSeL DiSeL where
   send tag body receiver = Send tag body receiver (pure ())
   receive tags = Receive tags pure
+  this = This pure
 
 stepDiSeL :: NodeID -> [Message] -> DiSeL a -> (Maybe Message, [Message], DiSeL a)
 stepDiSeL    _ soup (Pure a) = 
   (Nothing, soup, Pure a)
-stepDiSeL this soup (Send tag body to k) =
-  (Just $ Message this tag body to, soup, k)
-stepDiSeL this soup (Receive tags k) = 
+stepDiSeL nodeID soup (Send tag body to k) =
+  (Just $ Message nodeID tag body to, soup, k)
+stepDiSeL nodeID soup (Receive tags k) = 
   case pick isMessage soup of
     Nothing -> (Nothing, soup, k Nothing)
     Just (Message{..}, soup') -> (Nothing, soup', k $ Just (_msgTag, _msgBody, _msgFrom))
   where
-    isMessage Message{..} = _msgTag `elem` tags && _msgTo == this
-stepDiSeL this soup (Bind ma fb) = 
+    isMessage Message{..} = _msgTag `elem` tags && _msgTo == nodeID
+stepDiSeL nodeID soup (This k) =
+  (Nothing, soup, k nodeID)
+stepDiSeL nodeID soup (Bind ma fb) = 
   case ma of
     Pure a -> (Nothing, soup, fb a)
     _ -> 
-      let (mmsg, soup', ma') = stepDiSeL this soup ma in
+      let (mmsg, soup', ma') = stepDiSeL nodeID soup ma in
       (mmsg, soup', Bind ma' fb)
 
 pick :: (a -> Bool) -> [a] -> Maybe (a, [a])
@@ -145,51 +150,7 @@ runPure initConf = go (cycle $ _confNodes initConf) initConf
                      Just msg -> msg : soup'
       let conf' = conf { _confNodeStates = states', _confSoup = soup'' }
       ((mmsg, conf'):) <$> go schedule' $ conf'
-
-tpcCoordinator :: MonadDiSeL m => Int -> [NodeID] -> m a
-tpcCoordinator n participants = do
-  resps <- broadcast "Prepare" [] participants
-  _ <- if any isReject resps
-    then broadcast "Decide" [0] participants
-    else broadcast "Decide" [1] participants
-  tpcCoordinator (n + 1) participants
-  where 
-    isReject (_, [0], _) = True
-    isReject          _  = False
-
-tpcClient :: MonadDiSeL m => Int -> Int -> m a
-tpcClient n b = do
-  (tag, body, server) <- spinReceive ["Prepare__Broadcast", "Decide__Broadcast"]
-  case (tag, body) of
-      ("Prepare__Broadcast", []) ->
-        if n `mod` b == 0
-        then send "Prepare__Response" [1] server
-        else send "Prepare__Response" [0] server
-  tpcClient (n + 1) b
   
-  
-calculatorServer :: MonadDiSeL m => m a
-calculatorServer = do
-  (_, [x, y], client) <- spinReceive ["Compute__Request"]
-  send "Compute__Response" [x + y] client
-  calculatorServer
-
-calculatorClient :: MonadDiSeL m => Int -> Int -> NodeID -> m Int
-calculatorClient a b server = do
-  [x] <- rpcCall "Compute" [a, b] server
-  return x
-
-calcConfiguration :: MonadDiSeL m => Configuration m Int
-calcConfiguration = Configuration {
-  _confNodes = [0, 1, 2],
-  _confNodeStates = Map.fromList [
-                        (0, calculatorServer)
-                      , (1, calculatorClient 40 2 0)
-                      , (2, calculatorClient 100 11 0) 
-                      ],
-  _confSoup = []
-}
-
 stepThrough :: (a -> String) -> [a] -> IO ()
 stepThrough format (x:xs) = do
   putStrLn $ format x
@@ -200,8 +161,8 @@ type Runner = ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) IO
 
 instance MonadDiSeL Runner where
   send tag body to = do
-    (this, _, channels) <- ask
-    lift $ writeChan (channels Map.! to) (tag, body, this)
+    (nodeID, _, channels) <- ask
+    lift $ writeChan (channels Map.! to) (tag, body, nodeID)
   receive tags = do
     (_, inbox, _) <- ask
     pkt@(tag, _, _) <- lift $ readChan inbox
@@ -210,6 +171,9 @@ instance MonadDiSeL Runner where
       else do
         lift $ writeChan inbox pkt
         return Nothing
+  this = do
+    (nodeID, _, _) <- ask
+    return nodeID
 
 runNetworkIO :: Configuration Runner a -> IO [(NodeID, a)]
 runNetworkIO conf = do

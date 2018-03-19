@@ -9,6 +9,7 @@ module NetSim.TwoPhaseCommit(
 
 import NetSim.Core
 import NetSim.Invariant
+import NetSim.Language
 
 import Control.Monad (forM)
 
@@ -261,3 +262,26 @@ phaseTwoAbort = do
 
 phaseTwo :: TPCInv
 phaseTwo = phaseTwoCommit <||> phaseTwoAbort  
+
+-- Implementation
+
+tpcCoordinator :: MonadDiSeL m => Int -> [NodeID] -> m a
+tpcCoordinator n participants = do
+  resps <- broadcast "Prepare" [] participants
+  _ <- if any isReject resps
+    then broadcast "Decide" [0] participants
+    else broadcast "Decide" [1] participants
+  tpcCoordinator (n + 1) participants
+  where 
+    isReject (_, [0], _) = True
+    isReject          _  = False
+
+tpcClient :: MonadDiSeL m => Int -> Int -> m a
+tpcClient n b = do
+  (tag, body, server) <- spinReceive ["Prepare__Broadcast", "Decide__Broadcast"]
+  case (tag, body) of
+      ("Prepare__Broadcast", []) ->
+        if n `mod` b == 0
+        then send "Prepare__Response" [1] server
+        else send "Prepare__Response" [0] server
+  tpcClient (n + 1) b
