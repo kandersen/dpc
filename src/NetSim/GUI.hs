@@ -22,7 +22,7 @@ import Lens.Micro
 
 import Data.Map as Map
 
-import NetSim.TwoPhaseCommit
+import NetSim.Examples.TwoPhaseCommit
 
 data ResourceName = ChoiceSelection
                   deriving (Show, Eq, Ord)
