@@ -42,16 +42,24 @@ initNetwork = initializeNetwork nodes protlets
 --- Implementation
 
 polynomialServer :: (MonadDiSeL m) => Label -> Label -> m a
-polynomialServer addInstance mulInstance = par [processAdd, processMul] (\_ -> polynomialServer addInstance mulInstance)
+polynomialServer addInstance mulInstance = par [processMul, processAdd] (const $ polynomialServer addInstance mulInstance) --par [processAdd, processMul] (\_ -> polynomialServer addInstance mulInstance)
   where
     processAdd = do
-      (_, _, args, client) <- spinReceive addInstance ["compute__Request"]
-      send addInstance "computer__Response" (return $ sum args) client
+      mp <- receive addInstance ["compute__Request"]
+      case mp of
+        Just (_, _, args, client) -> send addInstance "compute__Response" (return $ sum args) client
+        Nothing -> return ()
       processAdd
 
     processMul = do
+      mp <- receive mulInstance ["compute__Request"]
+      case mp of
+        Just (_, _, args, client) -> send mulInstance "compute__Response" (return $ product args) client
+        Nothing -> return ()
+      processMul
+
       (_, _, args, client) <- spinReceive mulInstance ["compute__Request"]
-      send mulInstance "computerMul__Response" (return $ product args) client
+      send mulInstance "compute__Response" (return $ product args) client
       processMul
 
 data Arith = Arith :+: Arith
@@ -94,13 +102,14 @@ polynomialClient addLabel mulLabel server e = go e
 
 initConf :: MonadDiSeL m => Configuration m Int
 initConf = Configuration {
-  _confNodes = [0, 1],
+  _confNodes = [0,1],
   _confSoup = [],
   _confNodeStates = Map.fromList [
-    (0, polynomialServer addLabel mulLabel),
-    (1, polynomialClient addLabel mulLabel 0 (2 * 2))]
---    (2, polynomialClient 0 (exTwiceSumOfFirstNNats 0))
+    (1, polynomialClient addLabel mulLabel serverID (2 * 2)),
+--    (2, polynomialClient addLabel mulLabel serverID (40 * 3)),
+    (0, polynomialServer addLabel mulLabel) ]
   }
   where
+    serverID = 0
     addLabel = 0
     mulLabel = 1

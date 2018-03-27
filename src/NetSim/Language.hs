@@ -10,6 +10,7 @@
 module NetSim.Language where
 
 import NetSim.Core
+import NetSim.Util
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Foldable
@@ -130,8 +131,6 @@ stepDiSeL nodeID soup (Par mas k) =
       let (mmsg, soup', ma') = stepDiSeL nodeID soup ma in
       (mmsg, soup', Par (snoc mas' (n, ma')) k)
   where
-    snoc [] a = [a]
-    snoc (x:xs) a = x : snoc xs a
     check [] = Just []
     check ((n,ma):mas') = case ma of
       Pure a -> case check mas' of
@@ -189,6 +188,8 @@ stepThrough format (x:xs) = do
   _ <- getLine
   stepThrough format xs
 
+-- IO Implementation with real threads!
+
 type Runner = ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) IO
 
 instance MonadDiSeL Runner where
@@ -203,9 +204,7 @@ instance MonadDiSeL Runner where
       else do
         lift $ writeChan inbox pkt
         return Nothing
-  this = do
-    (nodeID, _, _) <- ask
-    return nodeID
+  this = (\(nodeID, _, _) -> nodeID) <$> ask
   par mas k = do
     env <- ask
     as <- liftIO $ forkThreadsAndWait env mas 
@@ -219,9 +218,6 @@ instance MonadDiSeL Runner where
         as <- forkThreadsAndWait env mas'
         a <- takeMVar varA
         return $ a:as
-
-
-    
 
 runNetworkIO :: Configuration Runner a -> IO [(NodeID, a)]
 runNetworkIO conf = do
@@ -240,3 +236,44 @@ runNetworkIO conf = do
   where
     epilogue :: Chan a -> a -> Runner ()
     epilogue output a = liftIO $ writeChan output a
+
+simpleConf :: MonadDiSeL m => m a -> Configuration m a
+simpleConf code = Configuration {
+  _confNodes = [0],
+  _confSoup = [],
+  _confNodeStates = Map.fromList [(0, code)]
+  }
+
+simpleConf' :: MonadDiSeL m => [m a] -> Configuration m a
+simpleConf' codes = Configuration {
+  _confNodes = [0..length codes - 1],
+  _confSoup = [],
+  _confNodeStates = Map.fromList $ zip [0..] codes
+}
+
+test1 :: MonadDiSeL m => m Int
+test1 = return 42
+
+test2a :: MonadDiSeL m => m Int
+test2a = send 0 "test" [42] 1 >> return 0
+
+test2b :: MonadDiSeL m => m Int
+test2b = spinReceive 0 ["test"] >>= (\(_, _, [ans],_) -> return ans)
+
+test3s :: MonadDiSeL m => m a
+test3s = do
+  (_, _, [x], c) <- spinReceive 0 ["testQ"]
+  send 0 "testA" [x + 1] c
+  test3s
+
+test3c :: MonadDiSeL m => Int -> m Int
+test3c n = do
+  send 0 "testQ" [n] 0
+  (_, _, [ans], _) <- spinReceive 0 ["testA"]
+  return ans
+
+test4 :: MonadDiSeL m => m [Int]
+test4 = par (pure <$> [0..10]) pure
+
+test3s' :: MonadDiSeL m => m a
+test3s' = par [test3s, pure undefined] (const test3s')
