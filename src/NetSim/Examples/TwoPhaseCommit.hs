@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE RankNTypes #-}
-module NetSim.TwoPhaseCommit(
+module NetSim.Examples.TwoPhaseCommit(
   initNetwork,
   initNetworkMetadata,
   tpcInvariant

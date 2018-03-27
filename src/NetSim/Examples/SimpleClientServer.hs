@@ -1,4 +1,4 @@
-module NetSim.SimpleClientServer where
+module NetSim.Examples.SimpleClientServer where
 
 import NetSim.Core
 

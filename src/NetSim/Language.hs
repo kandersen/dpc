@@ -16,6 +16,8 @@ import Data.Foldable
 import Control.Monad.Reader
 import Control.Concurrent.Chan
 import Control.Concurrent
+import Data.List (intercalate, sortBy)
+import Data.Ord (comparing)
 
 type Packet = (String, [Int], NodeID)
 
@@ -23,6 +25,7 @@ class Monad m => MonadDiSeL m where
   send :: String -> [Int] -> NodeID -> m ()
   receive :: [String] -> m (Maybe Packet)
   this :: m NodeID
+  par :: [m a] -> ([a] -> m c) -> m c
 
 spinReceive :: MonadDiSeL m => [String] -> m Packet
 spinReceive tags = do
@@ -60,18 +63,24 @@ data DiSeL a = Pure a
              | Send String [Int] NodeID (DiSeL a)
              | Receive [String] (Maybe Packet -> DiSeL a)
              | This (NodeID -> DiSeL a)
+             | forall b. Par [(Int, DiSeL b)] ([b] -> DiSeL a)
 
 ppDiSeL :: DiSeL a -> String
 ppDiSeL (Pure _) = "Pure <val>"
 ppDiSeL (Bind ma _) = concat ["Bind(", ppDiSeL ma, ", <Cont>)"]
 ppDiSeL (Send tag body to k) = concat ["Send(", tag, ", ", show body, ", ", show to, ", ", ppDiSeL k]
 ppDiSeL (Receive tags _) = concat ["Receive(", show tags, ", <Cont>)"]
+ppDiSeL (This _) = "This <Cont>"
+ppDiSeL (Par mas _) = "Par [" ++ intercalate "," ((ppDiSeL . snd) <$> mas) ++ "]"
 
 instance Show a => Show (DiSeL a) where
   show (Pure a) = "Pure " ++ show a
   show (Bind _ _) = "Bind ma <Continuation>"
   show (Send tag body nodeid k) = concat ["Send ", tag, show body, show nodeid, "(", show k, ")"]
   show (Receive tags _) = concat ["Receive ", show tags, " <Continuation>"]
+  show (This _) = "This <Continuation>"
+  show (Par _ _) = "Par Schedule cont"
+
 
 instance Functor DiSeL where
   fmap f (Pure a) = Pure (f a)
@@ -93,6 +102,7 @@ instance MonadDiSeL DiSeL where
   send tag body receiver = Send tag body receiver (pure ())
   receive tags = Receive tags pure
   this = This pure
+  par as k = Par (zip [0..] as) k
 
 stepDiSeL :: NodeID -> [Message] -> DiSeL a -> (Maybe Message, [Message], DiSeL a)
 stepDiSeL    _ soup (Pure a) = 
@@ -107,6 +117,24 @@ stepDiSeL nodeID soup (Receive tags k) =
     isMessage Message{..} = _msgTag `elem` tags && _msgTo == nodeID
 stepDiSeL nodeID soup (This k) =
   (Nothing, soup, k nodeID)
+stepDiSeL nodeID soup (Par mas k) = 
+  case check mas of
+    Just as -> 
+      (Nothing, soup, k (snd <$> sortBy (comparing fst) as))
+    Nothing ->
+      let ((n,ma):mas') = mas in
+      let (mmsg, soup', ma') = stepDiSeL nodeID soup ma in
+      (mmsg, soup', Par (snoc mas' (n, ma')) k)
+  where
+    snoc [] a = [a]
+    snoc (x:xs) a = x : snoc xs a
+    check [] = Just []
+    check ((n,ma):mas') = case ma of
+      Pure a -> case check mas' of
+        Just as' -> Just $ (n, a) : as'
+        Nothing -> Nothing
+      _ -> Nothing
+
 stepDiSeL nodeID soup (Bind ma fb) = 
   case ma of
     Pure a -> (Nothing, soup, fb a)
@@ -174,6 +202,22 @@ instance MonadDiSeL Runner where
   this = do
     (nodeID, _, _) <- ask
     return nodeID
+  par mas k = do
+    env <- ask
+    as <- liftIO $ forkThreadsAndWait env mas 
+    k as
+    where
+      forkThreadsAndWait _ [] = do
+        return []
+      forkThreadsAndWait env (ma:mas') = do
+        varA <- liftIO newEmptyMVar
+        liftIO $ (runReaderT ma env) >>= putMVar varA
+        as <- forkThreadsAndWait env mas'
+        a <- takeMVar varA
+        return $ a:as
+
+
+    
 
 runNetworkIO :: Configuration Runner a -> IO [(NodeID, a)]
 runNetworkIO conf = do

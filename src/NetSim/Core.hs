@@ -45,7 +45,7 @@ data Protlet f s = RPC          String (ClientStep s) (ServerStep s)
 type ClientStep s = s -> Maybe (NodeID, [Int], [Int] -> s)
 type ServerStep s = [Int] -> s -> Maybe ([Int], s)
 
-type Receive   s = Message -> s -> Maybe           s
+type Receive   s = Message -> s -> Maybe s
 type Send    f s = NodeID  -> s -> f (Message, s)
 
 type Broadcast s = s -> Maybe ([(NodeID, [Int])], [[Int]] -> s)

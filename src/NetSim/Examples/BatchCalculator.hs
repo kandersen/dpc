@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
-module NetSim.BatchCalculator where
+module NetSim.Examples.BatchCalculator where
 
 import NetSim.Core
 import NetSim.Language

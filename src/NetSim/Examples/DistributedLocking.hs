@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
-module NetSim.DistributedLocking where
+module NetSim.Examples.DistributedLocking where
 
 import NetSim.Core
 import Control.Applicative
