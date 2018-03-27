@@ -12,6 +12,8 @@ ppMessage Message{..} = concat [
   , show _msgBody
   , ", to "
   , show _msgTo
+  , ", label "
+  , show _msgLabel
   , ")"
   ]
 

@@ -19,65 +19,65 @@ import Control.Concurrent
 import Data.List (intercalate, sortBy)
 import Data.Ord (comparing)
 
-type Packet = (String, [Int], NodeID)
+type Packet = (Label, String, [Int], NodeID)
 
 class Monad m => MonadDiSeL m where
-  send :: String -> [Int] -> NodeID -> m ()
-  receive :: [String] -> m (Maybe Packet)
+  send :: Label -> String -> [Int] -> NodeID -> m ()
+  receive :: Label -> [String] -> m (Maybe Packet)
   this :: m NodeID
   par :: [m a] -> ([a] -> m c) -> m c
 
-spinReceive :: MonadDiSeL m => [String] -> m Packet
-spinReceive tags = do
-    mmsg <- receive tags
+spinReceive :: MonadDiSeL m => Label -> [String] -> m Packet
+spinReceive label tags = do
+    mmsg <- receive label tags
     case mmsg of
-      Nothing -> spinReceive tags
+      Nothing -> spinReceive label tags
       Just msg -> return msg
 
 rpcCall :: MonadDiSeL m =>
-  String -> [Int] -> NodeID -> m [Int]
-rpcCall protlet body to = do
-  send (protlet ++ "__Request") body to
-  (_, resp, _) <- spinReceive [protlet ++ "__Response"]
+  Label -> String -> [Int] -> NodeID -> m [Int]
+rpcCall label protlet body to = do
+  send label (protlet ++ "__Request") body to
+  (_, _, resp, _) <- spinReceive label [protlet ++ "__Response"]
   return resp
 
 broadcastQuorom :: (MonadDiSeL m, Ord fraction, Fractional fraction) =>
-  fraction -> String -> [Int] -> [NodeID] -> m [Packet]
-broadcastQuorom fraction protlet body receivers = do
-  traverse_ (send (protlet ++ "__Broadcast") body) receivers
+  fraction -> Label -> String -> [Int] -> [NodeID] -> m [Packet]
+broadcastQuorom fraction label protlet body receivers = do
+  traverse_ (send label (protlet ++ "__Broadcast") body) receivers
   spinForResponses []
   where    
     spinForResponses resps 
       | fromIntegral (length resps) >= fraction * fromIntegral (length receivers) =
          return resps
       | otherwise = do
-          resp <- spinReceive [protlet ++ "__Response"]
+          resp <- spinReceive label [protlet ++ "__Response"]
           spinForResponses (resp:resps)
 
 broadcast :: (MonadDiSeL m) =>
-  String -> [Int] -> [NodeID] -> m [Packet]
+  Label -> String -> [Int] -> [NodeID] -> m [Packet]
 broadcast = broadcastQuorom (1 :: Double)
  
 data DiSeL a = Pure a
              | forall b. Bind (DiSeL b) (b -> DiSeL a)
-             | Send String [Int] NodeID (DiSeL a)
-             | Receive [String] (Maybe Packet -> DiSeL a)
+             | Send Label String [Int] NodeID (DiSeL a)
+             | Receive Label [String] (Maybe Packet -> DiSeL a)
              | This (NodeID -> DiSeL a)
              | forall b. Par [(Int, DiSeL b)] ([b] -> DiSeL a)
 
 ppDiSeL :: DiSeL a -> String
 ppDiSeL (Pure _) = "Pure <val>"
 ppDiSeL (Bind ma _) = concat ["Bind(", ppDiSeL ma, ", <Cont>)"]
-ppDiSeL (Send tag body to k) = concat ["Send(", tag, ", ", show body, ", ", show to, ", ", ppDiSeL k]
-ppDiSeL (Receive tags _) = concat ["Receive(", show tags, ", <Cont>)"]
+ppDiSeL (Send label tag body to k) = concat ["Send[", show label, ", ", tag, "](", show body, ", ", show to, ", ", ppDiSeL k]
+ppDiSeL (Receive label tags _) = concat ["Receive[", show label, ", {", show tags, "}] <Cont>)"]
 ppDiSeL (This _) = "This <Cont>"
 ppDiSeL (Par mas _) = "Par [" ++ intercalate "," ((ppDiSeL . snd) <$> mas) ++ "]"
 
 instance Show a => Show (DiSeL a) where
   show (Pure a) = "Pure " ++ show a
   show (Bind _ _) = "Bind ma <Continuation>"
-  show (Send tag body nodeid k) = concat ["Send ", tag, show body, show nodeid, "(", show k, ")"]
-  show (Receive tags _) = concat ["Receive ", show tags, " <Continuation>"]
+  show (Send label tag body nodeid k) = concat ["Send[", show label, ", ", tag, "] ", show body, show nodeid, "(", show k, ")"]
+  show (Receive label tags _) = concat ["Receive[", show label, ", {", show tags, "}] <Continuation>"]
   show (This _) = "This <Continuation>"
   show (Par _ _) = "Par Schedule cont"
 
@@ -85,36 +85,40 @@ instance Show a => Show (DiSeL a) where
 instance Functor DiSeL where
   fmap f (Pure a) = Pure (f a)
   fmap f (Bind ma fb) = Bind ma (fmap f . fb)
-  fmap f (Send tag body to k) = Send tag body to (fmap f k)
-  fmap f (Receive tags k) = Receive tags (fmap f . k)
+  fmap f (Send label tag body to k) = Send label tag body to (fmap f k)
+  fmap f (Receive label tags k) = Receive label tags (fmap f . k)
+  fmap f (This k) = This (fmap f . k)
+  fmap f (Par as k) = Par as (fmap f . k)
 
 instance Applicative DiSeL where
   pure = Pure
   (Pure f) <*> ma = fmap f ma
   (Bind ma fb) <*> mb = Bind ma ((<*> mb) . fb)
-  (Send tag body to k) <*> mb = Send tag body to (k <*> mb)
-  (Receive tags k) <*> mb = Receive tags ((<*> mb) . k)
+  (Send label tag body to k) <*> mb = Send label tag body to (k <*> mb)
+  (Receive label tags k) <*> mb = Receive label tags ((<*> mb) . k)
+  (This k) <*> mb = This ((<*> mb) . k)
+  (Par as k) <*> mb = Par as ((<*> mb) . k)
 
 instance Monad DiSeL where
   (>>=) = Bind
 
 instance MonadDiSeL DiSeL where
-  send tag body receiver = Send tag body receiver (pure ())
-  receive tags = Receive tags pure
+  send label tag body receiver = Send label tag body receiver (pure ())
+  receive label tags = Receive label tags pure
   this = This pure
   par as k = Par (zip [0..] as) k
 
 stepDiSeL :: NodeID -> [Message] -> DiSeL a -> (Maybe Message, [Message], DiSeL a)
 stepDiSeL    _ soup (Pure a) = 
   (Nothing, soup, Pure a)
-stepDiSeL nodeID soup (Send tag body to k) =
-  (Just $ Message nodeID tag body to, soup, k)
-stepDiSeL nodeID soup (Receive tags k) = 
+stepDiSeL nodeID soup (Send label tag body to k) =
+  (Just $ Message nodeID tag body to label, soup, k)
+stepDiSeL nodeID soup (Receive label tags k) = 
   case pick isMessage soup of
     Nothing -> (Nothing, soup, k Nothing)
-    Just (Message{..}, soup') -> (Nothing, soup', k $ Just (_msgTag, _msgBody, _msgFrom))
+    Just (Message{..}, soup') -> (Nothing, soup', k $ Just (_msgLabel, _msgTag, _msgBody, _msgFrom))
   where
-    isMessage Message{..} = _msgTag `elem` tags && _msgTo == nodeID
+    isMessage Message{..} = _msgTag `elem` tags && _msgTo == nodeID && _msgLabel == label
 stepDiSeL nodeID soup (This k) =
   (Nothing, soup, k nodeID)
 stepDiSeL nodeID soup (Par mas k) = 
@@ -188,13 +192,13 @@ stepThrough format (x:xs) = do
 type Runner = ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) IO
 
 instance MonadDiSeL Runner where
-  send tag body to = do
+  send label tag body to = do
     (nodeID, _, channels) <- ask
-    lift $ writeChan (channels Map.! to) (tag, body, nodeID)
-  receive tags = do
+    lift $ writeChan (channels Map.! to) (label, tag, body, nodeID)
+  receive label tags = do
     (_, inbox, _) <- ask
-    pkt@(tag, _, _) <- lift $ readChan inbox
-    if tag `elem` tags
+    pkt@(label', tag, _, _) <- lift $ readChan inbox
+    if tag `elem` tags && label' == label
       then return $ Just pkt
       else do
         lift $ writeChan inbox pkt
