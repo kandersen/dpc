@@ -42,24 +42,16 @@ initNetwork = initializeNetwork nodes protlets
 --- Implementation
 
 polynomialServer :: (MonadDiSeL m) => Label -> Label -> m a
-polynomialServer addInstance mulInstance = par [processMul, processAdd] (const $ polynomialServer addInstance mulInstance) --par [processAdd, processMul] (\_ -> polynomialServer addInstance mulInstance)
+polynomialServer addInstance mulInstance = par [processMul, processAdd] undefined --par [processAdd, processMul] (\_ -> polynomialServer addInstance mulInstance)
   where
     processAdd = do
-      mp <- receive addInstance ["compute__Request"]
-      case mp of
-        Just (_, _, args, client) -> send addInstance "compute__Response" (return $ sum args) client
-        Nothing -> return ()
+      (_, _, args, client) <- spinReceive addInstance ["compute__Request"]
+      send addInstance "compute__Response" [sum args] client
       processAdd
 
     processMul = do
-      mp <- receive mulInstance ["compute__Request"]
-      case mp of
-        Just (_, _, args, client) -> send mulInstance "compute__Response" (return $ product args) client
-        Nothing -> return ()
-      processMul
-
       (_, _, args, client) <- spinReceive mulInstance ["compute__Request"]
-      send mulInstance "compute__Response" (return $ product args) client
+      send mulInstance "compute__Response" [product args] client
       processMul
 
 data Arith = Arith :+: Arith
@@ -75,20 +67,10 @@ instance Num Arith where
   abs = error "abs not implemented"
   signum = error "signum not implemented"
 
-ex1 :: Arith
-ex1 = (5 * 2 + 8) * (-4) + 8
-
-exSumOfFirstNNats :: (Num p, Eq p) => p -> p
-exSumOfFirstNNats 0 = 0
-exSumOfFirstNNats n = n + exSumOfFirstNNats (n - 1)
-
-exTwiceSumOfFirstNNats :: Num a => a -> a
-exTwiceSumOfFirstNNats n = (n * n) + n 
-
 polynomialClient :: (MonadDiSeL m) => Label -> Label -> NodeID -> Arith -> m Int
 polynomialClient addLabel mulLabel server e = go e
   where
-    go (ConstInt n) = return n
+    go (ConstInt n) = pure n
     go (l :+: r) = do
       l' <- go l
       r' <- go r
@@ -102,12 +84,12 @@ polynomialClient addLabel mulLabel server e = go e
 
 initConf :: MonadDiSeL m => Configuration m Int
 initConf = Configuration {
-  _confNodes = [0,1],
+  _confNodes = [serverID,1],
   _confSoup = [],
   _confNodeStates = Map.fromList [
-    (1, polynomialClient addLabel mulLabel serverID (2 * 2)),
---    (2, polynomialClient addLabel mulLabel serverID (40 * 3)),
-    (0, polynomialServer addLabel mulLabel) ]
+    (2, polynomialClient addLabel mulLabel serverID (40 + 3 * 4)),
+    (1, polynomialClient addLabel mulLabel serverID (2 * 32 * 1 * 2 * 3)),
+    (serverID, polynomialServer addLabel mulLabel) ]
   }
   where
     serverID = 0

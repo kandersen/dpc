@@ -72,7 +72,7 @@ ppDiSeL (Bind ma _) = concat ["Bind(", ppDiSeL ma, ", <Cont>)"]
 ppDiSeL (Send label tag body to k) = concat ["Send[", show label, ", ", tag, "](", show body, ", ", show to, ", ", ppDiSeL k]
 ppDiSeL (Receive label tags _) = concat ["Receive[", show label, ", {", show tags, "}] <Cont>)"]
 ppDiSeL (This _) = "This <Cont>"
-ppDiSeL (Par mas _) = "Par [" ++ intercalate "," ((ppDiSeL . snd) <$> mas) ++ "]"
+ppDiSeL (Par mas _) = "Par [" ++ intercalate "," (ppDiSeL . snd <$> mas) ++ "]"
 
 instance Show a => Show (DiSeL a) where
   show (Pure a) = "Pure " ++ show a
@@ -124,18 +124,16 @@ stepDiSeL nodeID soup (This k) =
   (Nothing, soup, k nodeID)
 stepDiSeL nodeID soup (Par mas k) = 
   case check mas of
-    Just as -> 
-      (Nothing, soup, k (snd <$> sortBy (comparing fst) as))
-    Nothing ->
-      let ((n,ma):mas') = mas in
+    Nothing -> 
+      let ((n, ma):mas') = mas in
       let (mmsg, soup', ma') = stepDiSeL nodeID soup ma in
       (mmsg, soup', Par (snoc mas' (n, ma')) k)
+    Just as ->
+      (Nothing, soup, k $ snd <$> sortBy (comparing fst) as)
   where
     check [] = Just []
-    check ((n,ma):mas') = case ma of
-      Pure a -> case check mas' of
-        Just as' -> Just $ (n, a) : as'
-        Nothing -> Nothing
+    check ((n, ma):mas') = case ma of
+      Pure a -> ((n, a):) <$> check mas'
       _ -> Nothing
 
 stepDiSeL nodeID soup (Bind ma fb) = 
@@ -207,17 +205,19 @@ instance MonadDiSeL Runner where
   this = (\(nodeID, _, _) -> nodeID) <$> ask
   par mas k = do
     env <- ask
-    as <- liftIO $ forkThreadsAndWait env mas 
+    vars <- forkThreads env mas
+    as <-  awaitThreads vars
     k as
     where
-      forkThreadsAndWait _ [] = do
-        return []
-      forkThreadsAndWait env (ma:mas') = do
-        varA <- liftIO newEmptyMVar
-        liftIO $ (runReaderT ma env) >>= putMVar varA
-        as <- forkThreadsAndWait env mas'
-        a <- takeMVar varA
-        return $ a:as
+      forkThreads _ [] = return []
+      forkThreads env (ma:mas') = do
+        var <- liftIO newEmptyMVar
+        liftIO . forkIO $ ((runReaderT ma env) >>= putMVar var)
+        (var:) <$> forkThreads env mas'
+      awaitThreads [] = return []
+      awaitThreads (v:vs) = do
+        a <- liftIO $ takeMVar v
+        (a:) <$> awaitThreads vs
 
 runNetworkIO :: Configuration Runner a -> IO [(NodeID, a)]
 runNetworkIO conf = do
