@@ -42,17 +42,12 @@ initNetwork = initializeNetwork nodes protlets
 --- Implementation
 
 polynomialServer :: (MonadDiSeL m) => Label -> Label -> m a
-polynomialServer addInstance mulInstance = par [processMul, processAdd] undefined --par [processAdd, processMul] (\_ -> polynomialServer addInstance mulInstance)
-  where
-    processAdd = do
-      (_, _, args, client) <- spinReceive addInstance ["compute__Request"]
-      send addInstance "compute__Response" [sum args] client
-      processAdd
-
-    processMul = do
-      (_, _, args, client) <- spinReceive mulInstance ["compute__Request"]
-      send mulInstance "compute__Response" [product args] client
-      processMul
+polynomialServer addInstance mulInstance = par [loop mulInstance product, loop addInstance sum] undefined
+  where    
+    loop label f = do
+      (_, _, args, client) <- spinReceive label ["compute__Request"]
+      send label "compute__Response" [f args] client
+      loop label f
 
 data Arith = Arith :+: Arith
            | Arith :*: Arith
@@ -77,18 +72,18 @@ polynomialClient addLabel mulLabel server e = go e
       [ans] <- rpcCall addLabel "compute" [l', r'] server 
       return ans
     go (l :*: r) = do
-        l' <- go l
-        r' <- go r
-        [ans] <- rpcCall mulLabel "compute" [l', r'] server 
-        return ans
+      l' <- go l
+      r' <- go r
+      [ans] <- rpcCall mulLabel "compute" [l', r'] server 
+      return ans
 
 initConf :: MonadDiSeL m => Configuration m Int
 initConf = Configuration {
-  _confNodes = [serverID,1],
+  _confNodes = [serverID,1,2],
   _confSoup = [],
   _confNodeStates = Map.fromList [
     (2, polynomialClient addLabel mulLabel serverID (40 + 3 * 4)),
-    (1, polynomialClient addLabel mulLabel serverID (2 * 32 * 1 * 2 * 3)),
+    (1, polynomialClient addLabel mulLabel serverID (2 * 32 + 1 * 2 * 3)),
     (serverID, polynomialServer addLabel mulLabel) ]
   }
   where

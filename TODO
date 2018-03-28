@@ -9,12 +9,12 @@ Code Generation:
       preliminary version is done, and it can race the basic calculator example quite satisfactorily.
       I anticipate more sophisticated refinements of this as the examples/case studies progress, but 
       as of now it's actually working.
-  ☐ Try simple case studies for implementation once a runner is in place
-  ☐ Include the notion of label in the programming language so we can run in multiple protocols
+  ✔ Try simple case studies for implementation once a runner is in place @done (18-03-28 17:38)
+  ✔ Include the notion of label in the programming language so we can run in multiple protocols @done (18-03-28 17:38)
   ☐ From Protlet to Code stubs:
     ✔ Encapsulate blocking receive via tail-recursive loop @done (18-03-15 22:19)
       Presumably when in the `Running` protocol state
-    ☐ Running Example: two calculators in one protocol (addition and multiplication) and computing polynomials
+    ✔ Running Example: two calculators in one protocol (addition and multiplication) and computing polynomials @done (18-03-28 17:38)
     ☐ Paxos implementation using broadcast
   ✔ Generalize broadcast to wait for a fraction of the responses @done (18-03-16 15:53)
 
