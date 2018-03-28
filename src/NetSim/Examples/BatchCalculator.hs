@@ -52,6 +52,7 @@ computeProtocol = ARPC "Compute" client serverRec serverSend
 initNetwork :: Alternative f => Network f PState
 initNetwork = initializeNetwork nodes protlets
   where
+    label = 0
     nodes = [ (0, ServerBatch 3 [])
             , (1, ClientInit 1 0 2 40)
             , (2, ClientInit 2 0 1 10)
@@ -60,11 +61,11 @@ initNetwork = initializeNetwork nodes protlets
             , (5, ClientInit 5 0 7 7)
             , (6, ClientInit 6 0 100 1000)
             ]
-    protlets = [computeProtocol]
+    protlets = [(label, computeProtocol)]
 
 calculatorServer :: MonadDiSeL m => m a
-calculatorServer = do
-  (_, [x, y], client) <- spinReceive ["Compute__Request"]
+calculatorServer label = do
+  (_, [x, y], client) <- spinReceive label ["Compute__Request"]
   send "Compute__Response" [x + y] client
   calculatorServer
 

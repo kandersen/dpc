@@ -2,7 +2,8 @@
 {-# LANGUAGE Rank2Types #-}
 
 module NetSim.GUI (
-  runGUI
+  runGUI,
+  runGUIWithoutInvariant
   ) where
 
 import NetSim.Core
@@ -21,8 +22,6 @@ import Control.Monad.IO.Class
 import Lens.Micro
 
 import Data.Map as Map
-
-import NetSim.TwoPhaseCommit
 
 data ResourceName = ChoiceSelection
                   deriving (Show, Eq, Ord)
@@ -61,7 +60,7 @@ enableMouse = do
   when (supportsMode output Mouse) $
     liftIO $ setMode output Mouse True
 
-renderNode :: Show s => (NodeID, NodeState s, [Message]) -> Widget ResourceName
+renderNode :: Show s => (NodeID, Map Label (NodeState s), [Message]) -> Widget ResourceName
 renderNode (nodeID, state, inbox) =
   borderWithLabel (str $ "Node " ++ show nodeID) $ vBox
     [ borderWithLabel (str "State") (str $ show state),
@@ -72,9 +71,9 @@ renderNetwork AppState{..} = return $
   withBorderStyle unicode $ 
         border (str "Invariant satisfied: " <+> (str . show $ _invariant (_metadata, _network)))
     <=> vBox (vCenter . hBox <$> groupsOf 2 [ center . renderNode $ (nodeID, state, inbox) |
-                                                                   (nodeID, state) <- Map.toList $ _states _network,
-                                                                   (nodeID', inbox) <- Map.toList $ _inboxes _network,
-                                                                   nodeID == nodeID' ])
+                                                                    (nodeID, state) <- Map.toList $ _states _network,
+                                                                    (nodeID', inbox) <- Map.toList $ _inboxes _network,
+                                                                    nodeID == nodeID' ])
     <=> borderWithLabel (str "Choices") 
           (vBox (fmap (str . show) _transitions))
     <=> borderWithLabel (str "Make a choice by pressing enter while the field reads <n> for 1 to # of options")
@@ -108,3 +107,6 @@ runGUI n inv meta = void $ defaultMain renderNetworkApp initialState
       _transitions = possibleTransitions n,
       _form = inputForm 0
     }
+
+runGUIWithoutInvariant :: Show s => Network [] s -> IO ()
+runGUIWithoutInvariant n = runGUI n (const True) ()
