@@ -69,7 +69,7 @@ renderNode (nodeID, state, inbox) =
 renderNetwork :: Show s => AppState m s -> [Widget ResourceName]
 renderNetwork AppState{..} = return $
   withBorderStyle unicode $ 
-        border (str "Invariant satisfied: " <+> (str . show $ _invariant (_metadata, _network)))
+        border (str "Invariant satisfied: " <+> (str . show $ _invariant (_metadata, 0, _network)))
     <=> vBox (vCenter . hBox <$> groupsOf 2 [ center . renderNode $ (nodeID, state, inbox) |
                                                                     (nodeID, state) <- Map.toList $ _states _network,
                                                                     (nodeID', inbox) <- Map.toList $ _inboxes _network,

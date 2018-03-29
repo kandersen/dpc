@@ -2,9 +2,11 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE RankNTypes #-}
 module NetSim.Examples.TwoPhaseCommit(
-  initNetwork,
-  initNetworkMetadata,
-  tpcInvariant
+    initNetwork
+  , initNetworkMetadata
+  , tpcClient
+  , tpcCoordinator
+  , tpcInvariant
   ) where
 
 import NetSim.Core
@@ -12,6 +14,8 @@ import NetSim.Invariant
 import NetSim.Language
 
 import Control.Monad (forM)
+
+import Lens.Micro
 
 data State = CoordinatorInit [NodeID]
            | CoordinatorCommit [NodeID]
@@ -24,8 +28,8 @@ data State = CoordinatorInit [NodeID]
            | ParticipantAbort NodeID
            deriving (Show, Eq)
 
-prepare :: Alternative f => Protlet f State
-prepare = Broadcast "Prepare" coordinatorBroadcast participantReceive participantSend
+prepare :: Alternative f => Label -> Protlet f State
+prepare label = Broadcast "Prepare" coordinatorBroadcast participantReceive participantSend
   where
     coordinatorBroadcast = \case
       CoordinatorInit participants ->
@@ -51,11 +55,12 @@ prepare = Broadcast "Prepare" coordinatorBroadcast participantReceive participan
       _msgFrom = nodeID,
       _msgTag = "Prepare__Response",
       _msgBody = if b then [1] else [0],
-      _msgTo = coordinator
+      _msgTo = coordinator,
+      _msgLabel = label
       }
 
-decide :: Alternative f => Protlet f State
-decide = Broadcast "Decide" coordinatorBroadcast participantReceive participantRespond
+decide :: Label -> Alternative f => Protlet f State
+decide label = Broadcast "Decide" coordinatorBroadcast participantReceive participantRespond
   where
     coordinatorBroadcast = \case
       CoordinatorAbort participants ->
@@ -85,18 +90,20 @@ decide = Broadcast "Decide" coordinatorBroadcast participantReceive participantR
       _msgFrom = nodeID,
       _msgTag = "Decide__Response",
       _msgBody = if b then [1] else [0],
-      _msgTo = coordinator
+      _msgTo = coordinator,
+      _msgLabel = label
       }
 
 initNetwork :: Alternative f => Network f State
 initNetwork = initializeNetwork nodes protlets
   where
-    nodes = [ (0, CoordinatorInit [1,2,3])
-            , (1, ParticipantInit)
-            , (2, ParticipantInit)
-            , (3, ParticipantInit)
+    nodes = [ (0, [(label, CoordinatorInit [1,2,3])])
+            , (1, [(label, ParticipantInit)])
+            , (2, [(label, ParticipantInit)])
+            , (3, [(label, ParticipantInit)])
             ]
-    protlets = [prepare, decide]
+    protlets = [(label, prepare label), (label, decide label)]
+    label = 0
 
 initNetworkMetadata :: TPCMetaData
 initNetworkMetadata = TPCMetaData {
@@ -113,10 +120,10 @@ data TPCMetaData = TPCMetaData {
 type TPCInv = Invariant TPCMetaData State Bool
 
 getParticipants :: Invariant TPCMetaData s [NodeID]
-getParticipants = _participants . fst
+getParticipants = _participants . (^. _1)
 
 getCoordinator :: Invariant TPCMetaData s NodeID
-getCoordinator = _coordinator . fst
+getCoordinator = _coordinator . (^. _1)
 
 forallParticipants :: (NodeID -> TPCInv) -> TPCInv
 forallParticipants predicate = do
@@ -152,7 +159,7 @@ everythingInit = do
 participantPhaseOne :: NodeID -> TPCInv
 participantPhaseOne pt = do
   cn <- getCoordinator 
-  foldr1 (<||>) [
+  foldOr [
     runningInState ParticipantInit pt
     <&&> noMessageFromTo pt cn
     <&&> messageAt pt "Prepare__Broadcast" [] cn,
@@ -194,7 +201,7 @@ phaseOne =
 participantPhaseTwoCommit :: NodeID -> TPCInv
 participantPhaseTwoCommit pt = do
   cn <- getCoordinator
-  foldr1 (<||>) [
+  foldOr [
     runningInState (ParticipantRespondedYes cn) pt
     <&&> messageAt pt "Decide__Broadcast" [1] cn
     <&&> noMessageFromTo pt cn,
@@ -210,7 +217,7 @@ participantPhaseTwoCommit pt = do
 participantPhaseTwoAbort :: NodeID -> TPCInv
 participantPhaseTwoAbort pt = do
   cn <- getCoordinator
-  foldr1 (<||>) [
+  foldOr [
     (runningInState (ParticipantRespondedYes cn) pt <||>
       runningInState (ParticipantRespondedNo cn) pt)
     <&&> messageAt pt "Decide__Broadcast" [0] cn
@@ -265,23 +272,23 @@ phaseTwo = phaseTwoCommit <||> phaseTwoAbort
 
 -- Implementation
 
-tpcCoordinator :: MonadDiSeL m => Int -> [NodeID] -> m a
-tpcCoordinator n participants = do
-  resps <- broadcast "Prepare" [] participants
+tpcCoordinator :: MonadDiSeL m => Label -> Int -> [NodeID] -> m a
+tpcCoordinator label n participants = do
+  resps <- broadcast label "Prepare" [] participants
   _ <- if any isReject resps
-    then broadcast "Decide" [0] participants
-    else broadcast "Decide" [1] participants
-  tpcCoordinator (n + 1) participants
+    then broadcast label "Decide" [0] participants
+    else broadcast label "Decide" [1] participants
+  tpcCoordinator label (n + 1) participants
   where 
-    isReject (_, [0], _) = True
-    isReject          _  = False
+    isReject (_, _, [0], _) = True
+    isReject             _  = False
 
-tpcClient :: MonadDiSeL m => Int -> Int -> m a
-tpcClient n b = do
-  (tag, body, server) <- spinReceive ["Prepare__Broadcast", "Decide__Broadcast"]
+tpcClient :: MonadDiSeL m => Label -> Int -> Int -> m a
+tpcClient label n b = do
+  (_, tag, body, server) <- spinReceive label ["Prepare__Broadcast", "Decide__Broadcast"]
   case (tag, body) of
       ("Prepare__Broadcast", []) ->
         if n `mod` b == 0
-        then send "Prepare__Response" [1] server
-        else send "Prepare__Response" [0] server
-  tpcClient (n + 1) b
+        then send label "Prepare__Response" [1] server
+        else send label "Prepare__Response" [0] server
+  tpcClient label (n + 1) b
