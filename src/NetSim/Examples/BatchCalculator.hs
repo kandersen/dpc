@@ -53,34 +53,36 @@ initNetwork :: Alternative f => Network f PState
 initNetwork = initializeNetwork nodes protlets
   where
     label = 0
-    nodes = [ (0, ServerBatch 3 [])
-            , (1, ClientInit 1 0 2 40)
-            , (2, ClientInit 2 0 1 10)
-            , (3, ClientInit 3 0 10 100)
-            , (4, ClientInit 4 0 2 3)
-            , (5, ClientInit 5 0 7 7)
-            , (6, ClientInit 6 0 100 1000)
+    nodes = [ (0, [(label, ServerBatch 3 [])])
+            , (1, [(label, ClientInit 1 0 2 40)])
+            , (2, [(label, ClientInit 2 0 1 10)])
+            , (3, [(label, ClientInit 3 0 10 100)])
+            , (4, [(label, ClientInit 4 0 2 3)])
+            , (5, [(label, ClientInit 5 0 7 7)])
+            , (6, [(label, ClientInit 6 0 100 1000)])
             ]
     protlets = [(label, computeProtocol)]
 
-calculatorServer :: MonadDiSeL m => m a
+calculatorServer :: MonadDiSeL m => Label -> m a
 calculatorServer label = do
-  (_, [x, y], client) <- spinReceive label ["Compute__Request"]
-  send "Compute__Response" [x + y] client
-  calculatorServer
+  (_, _, [x, y], client) <- spinReceive label ["Compute__Request"]
+  send label "Compute__Response" [x + y] client
+  calculatorServer label
 
-calculatorClient :: MonadDiSeL m => Int -> Int -> NodeID -> m Int
-calculatorClient a b server = do
-  [x] <- rpcCall "Compute" [a, b] server
+calculatorClient :: MonadDiSeL m => Label -> Int -> Int -> NodeID -> m Int
+calculatorClient label a b server = do
+  [x] <- rpcCall label "Compute" [a, b] server
   return x
 
 calcConfiguration :: MonadDiSeL m => Configuration m Int
 calcConfiguration = Configuration {
   _confNodes = [0, 1, 2],
   _confNodeStates = Map.fromList [
-                        (0, calculatorServer)
-                      , (1, calculatorClient 40 2 0)
-                      , (2, calculatorClient 100 11 0) 
+                        (0, calculatorServer label)
+                      , (1, calculatorClient label 40 2 0)
+                      , (2, calculatorClient label 100 11 0) 
                       ],
   _confSoup = []
-}
+  }
+  where 
+    label = 0

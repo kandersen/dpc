@@ -9,9 +9,9 @@ import qualified Data.Map as Map
 
 -- Round-Based Register
 
-readRBR :: MonadDiSeL m => [NodeID] -> Int -> m (Bool, Maybe Int)
-readRBR participants r = do
-  forM_ participants $ send "Read__Request" [r]
+readRBR :: MonadDiSeL m => Label -> [NodeID] -> Int -> m (Bool, Maybe Int)
+readRBR lbl participants r = do
+  forM_ participants $ send lbl "Read__Request" [r]
   spinForResponses 0 Nothing []
   where
     n :: Double
@@ -27,7 +27,7 @@ readRBR participants r = do
       if isDone q
         then return (True, maxV)
         else do
-          (_, body, sender) <- spinReceive ["Read__Response"]
+          (_, _, body, sender) <- spinReceive lbl ["Read__Response"]
           case body of
             [1, k, 0, kW] | k == r ->
               if kW >= maxKW
@@ -41,16 +41,16 @@ readRBR participants r = do
             _ -> spinForResponses maxKW maxV q
     
 
-writeRBR :: MonadDiSeL m => [NodeID] -> Int -> Int -> m Bool
-writeRBR participants r vW = do
-  forM_ participants $ send "Write__Request" [r, vW]
+writeRBR :: MonadDiSeL m => Label -> [NodeID] -> Int -> Int -> m Bool
+writeRBR lbl participants r vW = do
+  forM_ participants $ send lbl "Write__Request" [r, vW]
   spinForResponses []
   where
     n :: Double
     n = fromIntegral $ length participants 
 
     spinForResponses q = do
-      (_, body, sender) <- spinReceive ["Write__Response"]
+      (_, _, body, sender) <- spinReceive lbl ["Write__Response"]
       case body of
         [1, k] | k == r -> 
             if length q == ceiling ((n + 1.0) / 2.0)
@@ -59,53 +59,53 @@ writeRBR participants r vW = do
         [0, k] | k == r -> return False
         _ -> spinForResponses q
 
-acceptor :: MonadDiSeL m => m a
-acceptor = go Nothing 0 0
+acceptor :: MonadDiSeL m => Label -> m a
+acceptor lbl = go Nothing 0 0
   where
     go mv r w = do
-      (tag, body, sender) <- spinReceive ["Read__Request", "Write__Request"]
+      (_, tag, body, sender) <- spinReceive lbl ["Read__Request", "Write__Request"]
       case (tag, body) of
         ("Read__Request", [k]) -> 
             if k < r
               then do 
-                send "Read__Response" [0, k] sender
+                send lbl "Read__Response" [0, k] sender
                 go mv r w
               else do
                 let msg = case mv of
                             Nothing -> [1, k, 0, w]
                             Just v -> [1, k, 1, v, w]
-                send "Read__Response" msg sender
+                send lbl "Read__Response" msg sender
                 go mv k w
         ("Write__Request", [k, vW]) ->
             if k < r
                 then do
-                  send "Write__Response" [0, k] sender
+                  send lbl "Write__Response" [0, k] sender
                   go mv r w
                 else do
-                  send "Write__Response" [1, k] sender
+                  send lbl "Write__Response" [1, k] sender
                   go (Just vW) k k
         _ -> error $ "Illformed request " ++ tag ++ ": " ++ show body
 
 proposeRC :: MonadDiSeL m => 
-  [NodeID] -> Int -> Int -> m (Bool, Maybe Int)
-proposeRC participants r v0 = do
-  (resR, mv) <- readRBR participants r
+  Label -> [NodeID] -> Int -> Int -> m (Bool, Maybe Int)
+proposeRC lbl participants r v0 = do
+  (resR, mv) <- readRBR lbl participants r
   let v = fromMaybe v0 mv
   if resR 
     then do 
-      resW <- writeRBR participants r v
+      resW <- writeRBR lbl participants r v
       if resW 
         then return (True, Just v)
         else return (False, Nothing)
     else return (False, Nothing)
 
-proposeP :: MonadDiSeL m => [NodeID] -> Int -> m Int
-proposeP participants v0 = do
+proposeP :: MonadDiSeL m => Label -> [NodeID] -> Int -> m Int
+proposeP lbl participants v0 = do
     k <- this
     loopTillSucceed k
   where
     loopTillSucceed k = do
-      (res, v) <- proposeRC participants k v0
+      (res, v) <- proposeRC lbl participants k v0
       if res 
         then return (fromMaybe (error "Shouldn't happen!") v)
         else loopTillSucceed (k + length participants) 
@@ -116,9 +116,9 @@ initConf = Configuration {
     _confNodes = [0..2],
     _confSoup = [],
     _confNodeStates = Map.fromList [
-          (0, proposeP [1, 2] 42)
-        , (1, acceptor)
-        , (2, acceptor)
+          (0, proposeP 0 [1, 2] 42)
+        , (1, acceptor 0)
+        , (2, acceptor 0)
       ]
 
 }

@@ -2,7 +2,6 @@
 module NetSim.Examples.DistributedLocking where
 
 import NetSim.Core
-import Control.Applicative
 
 data State = ClientInit NodeID NodeID Int
                   | ClientAcquired NodeID NodeID Int Int
@@ -113,13 +112,13 @@ verifyToken = RPC "Verify" clientStep serverStep
 initNetwork :: Alternative f => Network f State
 initNetwork = initializeNetwork nodes protlets
   where
-    nodes = [ (0, ClientInit 2 3 42)
-            , (1, ClientInit 2 3 99)
-            , (2, LockIdle 0)
-            , (3, ResourceIdle 2 0)
+    nodes = [ (0, [(0, ClientInit 2 3 42)])
+            , (1, [(0, ClientInit 2 3 99)])
+            , (2, [(0, LockIdle 0)])
+            , (3, [(0, ResourceIdle 2 0)])
             ]
-    protlets = [ acquire
-               , modifyResource
-               , verifyToken
-               , release
+    protlets = [ (0, acquire)
+               , (0, modifyResource)
+               , (0, verifyToken)
+               , (0, release)
                ]
