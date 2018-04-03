@@ -20,14 +20,28 @@ import Control.Concurrent
 import Data.List (intercalate, sortBy)
 import Data.Ord (comparing)
 
+{-
+Packet p = (l, t, p, s)
+  where
+    l = protocol instance label
+    t = tag
+    p = payload
+    s = sender
+-}    
 type Packet = (Label, String, [Int], NodeID)
 
+--
+-- Language primitives
+--
 class Monad m => MonadDiSeL m where
   send :: Label -> String -> [Int] -> NodeID -> m ()
   receive :: Label -> [String] -> m (Maybe Packet)
   this :: m NodeID
   par :: [m a] -> ([a] -> m c) -> m c
 
+--
+-- Compound operations
+--
 spinReceive :: MonadDiSeL m => Label -> [String] -> m Packet
 spinReceive label tags = do
     mmsg <- receive label tags
@@ -58,7 +72,33 @@ broadcastQuorom fraction label protlet body receivers = do
 broadcast :: (MonadDiSeL m) =>
   Label -> String -> [Int] -> [NodeID] -> m [Packet]
 broadcast = broadcastQuorom (1 :: Double)
- 
+
+--
+-- Network description
+--
+data Configuration m a = Configuration {
+  _confNodes :: [NodeID],
+  _confNodeStates :: Map NodeID (m a),
+  _confSoup :: [Message]
+  }
+  deriving Show
+
+ppConf :: Show a => Configuration DiSeL a -> String
+ppConf Configuration{..} = unlines $ ("Soup: " ++ show _confSoup) :
+   [ concat [show nodeid, ": ", ppDiSeL' state] | (nodeid, state) <- Map.toList _confNodeStates ]
+  where
+    ppDiSeL' (Pure a) = "Returned " ++ show a
+    ppDiSeL' a = ppDiSeL a
+
+    --
+-- Pure implementation.
+--
+-- DiSeL is a deep embedding of the programming language.
+-- This can be used for pure execution of programs, e.g.
+-- to allow stepping through computations.
+-- The `Par` constructor embeds a 'schedule' into the list of subcomputations
+-- This allows a 'semi-stateful' interpretation of the AST, 
+-- as can be seen in the small-step operational semantics implemented below.
 data DiSeL a = Pure a
              | forall b. Bind (DiSeL b) (b -> DiSeL a)
              | Send Label String [Int] NodeID (DiSeL a)
@@ -81,7 +121,6 @@ instance Show a => Show (DiSeL a) where
   show (Receive label tags _) = concat ["Receive[", show label, ", {", show tags, "}] <Continuation>"]
   show (This _) = "This <Continuation>"
   show (Par _ _) = "Par Schedule cont"
-
 
 instance Functor DiSeL where
   fmap f (Pure a) = Pure (f a)
@@ -109,13 +148,17 @@ instance MonadDiSeL DiSeL where
   this = This pure
   par as k = Par (zip [0..] as) k
 
+-- Single-step evaluation. Takes a name for `this`, the
+-- message soup and the program under evaluation and produces
+-- possibly a message to be sent, an updated message soup and
+-- the continuation of the program.
 stepDiSeL :: NodeID -> [Message] -> DiSeL a -> (Maybe Message, [Message], DiSeL a)
 stepDiSeL    _ soup (Pure a) = 
   (Nothing, soup, Pure a)
 stepDiSeL nodeID soup (Send label tag body to k) =
   (Just $ Message nodeID tag body to label, soup, k)
 stepDiSeL nodeID soup (Receive label tags k) = 
-  case pick isMessage soup of
+  case oneOfP isMessage soup of
     Nothing -> (Nothing, soup, k Nothing)
     Just (Message{..}, soup') -> (Nothing, soup', k $ Just (_msgLabel, _msgTag, _msgBody, _msgFrom))
   where
@@ -135,34 +178,12 @@ stepDiSeL nodeID soup (Par mas k) =
     check ((n, ma):mas') = case ma of
       Pure a -> ((n, a):) <$> check mas'
       _ -> Nothing
-
 stepDiSeL nodeID soup (Bind ma fb) = 
   case ma of
     Pure a -> (Nothing, soup, fb a)
     _ -> 
       let (mmsg, soup', ma') = stepDiSeL nodeID soup ma in
       (mmsg, soup', Bind ma' fb)
-
-pick :: (a -> Bool) -> [a] -> Maybe (a, [a])
-pick _     [] = Nothing
-pick p (x:xs) = 
-  if p x
-    then Just (x, xs)
-    else (\(a, ys) -> (a, x:ys)) <$> pick p xs
-
-data Configuration m a = Configuration {
-  _confNodes :: [NodeID],
-  _confNodeStates :: Map NodeID (m a),
-  _confSoup :: [Message]
-  }
-  deriving Show
-
-ppConf :: Show a => Configuration DiSeL a -> String
-ppConf Configuration{..} = unlines $ ("Soup: " ++ show _confSoup) :
-   [ concat [show nodeid, ": ", ppDiSeL' state] | (nodeid, state) <- Map.toList _confNodeStates ]
-  where
-    ppDiSeL' (Pure a) = "Returned " ++ show a
-    ppDiSeL' a = ppDiSeL a
 
 runPure :: Configuration DiSeL a -> [(Maybe Message, Configuration DiSeL a)]
 runPure initConf = go (cycle $ _confNodes initConf) initConf
@@ -186,8 +207,9 @@ stepThrough format (x:xs) = do
   _ <- getLine
   stepThrough format xs
 
+--
 -- IO Implementation with real threads!
-
+--
 type Runner = ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) IO
 
 instance MonadDiSeL Runner where
@@ -237,6 +259,9 @@ runNetworkIO conf = do
     epilogue :: Chan a -> a -> Runner ()
     epilogue output a = liftIO $ writeChan output a
 
+--
+-- Tests
+--
 simpleConf :: MonadDiSeL m => m a -> Configuration m a
 simpleConf code = Configuration {
   _confNodes = [0],

@@ -2,11 +2,16 @@ module NetSim.Util where
 
 import Control.Applicative
 
-oneOf :: Alternative m => [a] -> m (a, [a])
-oneOf = go []
+oneOfP :: Alternative m => (a -> Bool) -> [a] -> m (a, [a])
+oneOfP _ [] = empty
+oneOfP p (x:xs) = 
+  (if p x then pure (x, xs) else empty) <|> 
+  (replace <$> oneOfP p xs)
   where
-    go _ [] = empty
-    go l (x:rs) = pure (x, l ++ rs) <|> go (x : l) rs
+    replace (a, ys) = (a, x:ys)
+
+oneOf :: Alternative m => [a] -> m (a, [a])
+oneOf = oneOfP (const True)
 
 snoc :: [a] -> a -> [a]
 snoc [] a = [a]

@@ -51,12 +51,18 @@ clientPredeterminedVals lbl server (x:xs) = do
     [1] <- rpcCall lbl "Write" [x] server
     clientPredeterminedVals lbl server xs
 
+
+    
 initConf :: Configuration Runner ()
 initConf = Configuration {
     _confSoup = [],
     _confNodes = [0, 1],
     _confNodeStates = fromList [
-        (0, server [0]),
-        (1, clientIO 0 0)
+        (serverID, server instances),
+        (1, clientIO 3 serverID),
+        (2, snapshotter instances serverID)
     ]
 }
+  where
+    serverID = 0
+    instances = [0..5]
