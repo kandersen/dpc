@@ -2,15 +2,14 @@ module NetSim.Examples.Database where
 
 import NetSim.Language
 import NetSim.Core
-import Text.Read (readMaybe)
 import Control.Monad.IO.Class
 import Control.Concurrent
 import Control.Monad
 import Data.Map (fromList)
 
 
-server :: MonadDiSeL m => [Label] -> m a
-server labels = par (oneCell 0 <$> labels) undefined
+dbServer :: MonadDiSeL m => [Label] -> m a
+dbServer labels = par (oneCell 0 <$> labels) undefined
   where
     oneCell val label = do
       (_, tag, msg, client) <- spinReceive label ["Read__Request", "Write__Request"]
@@ -58,7 +57,7 @@ initConf = Configuration {
     _confSoup = [],
     _confNodes = [0, 1],
     _confNodeStates = fromList [
-        (serverID, server instances),
+        (serverID, dbServer instances),
         (1, clientIO 3 serverID),
         (2, snapshotter instances serverID)
     ]

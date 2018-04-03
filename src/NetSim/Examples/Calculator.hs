@@ -1,5 +1,4 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE RecordWildCards #-}
 module NetSim.Examples.Calculator where
 
 import NetSim.Core
@@ -63,7 +62,7 @@ instance Num Arith where
   signum = error "signum not implemented"
 
 polynomialClient :: (MonadDiSeL m) => Label -> Label -> NodeID -> Arith -> m Int
-polynomialClient addLabel mulLabel server e = go e
+polynomialClient addLabel mulLabel server = go
   where
     go (ConstInt n) = pure n
     go (l :+: r) = do

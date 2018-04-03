@@ -209,7 +209,7 @@ participantPhaseTwoCommit pt = do
     runningInState (ParticipantCommit cn) pt
     <&&> noOutstandingMessagesBetween cn pt,
 
-    runningInState (ParticipantInit) pt
+    runningInState ParticipantInit pt
     <&&> noMessageFromTo cn pt
     <&&> messageAt cn "Decide__Response" [1] pt
     ]
@@ -226,7 +226,7 @@ participantPhaseTwoAbort pt = do
     runningInState (ParticipantAbort cn) pt
     <&&> noOutstandingMessagesBetween cn pt,
 
-    runningInState (ParticipantInit) pt
+    runningInState ParticipantInit pt
     <&&> noMessageFromTo cn pt
     <&&> messageAt cn "Decide__Response" [0] pt
     ]

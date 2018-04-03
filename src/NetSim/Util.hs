@@ -14,5 +14,9 @@ oneOf :: Alternative m => [a] -> m (a, [a])
 oneOf = oneOfP (const True)
 
 snoc :: [a] -> a -> [a]
-snoc [] a = [a]
-snoc (x:xs) a = x : snoc xs a
+snoc xs a = foldr (:) [a] xs
+
+groupsOf :: Int -> [a] -> [[a]]
+groupsOf n xs = case splitAt n xs of
+  (grp, []) -> [grp]
+  (grp, xs') -> grp : groupsOf n xs'

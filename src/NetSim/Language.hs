@@ -146,7 +146,7 @@ instance MonadDiSeL DiSeL where
   send label tag body receiver = Send label tag body receiver (pure ())
   receive label tags = Receive label tags pure
   this = This pure
-  par as k = Par (zip [0..] as) k
+  par as = Par (zip [0..] as)
 
 -- Single-step evaluation. Takes a name for `this`, the
 -- message soup and the program under evaluation and produces
@@ -202,6 +202,7 @@ runPure initConf = go (cycle $ _confNodes initConf) initConf
       ((mmsg, conf'):) <$> go schedule' $ conf'
   
 stepThrough :: (a -> String) -> [a] -> IO ()
+stepThrough      _     [] = return ()
 stepThrough format (x:xs) = do
   putStrLn $ format x
   _ <- getLine
@@ -234,7 +235,7 @@ instance MonadDiSeL Runner where
       forkThreads _ [] = return []
       forkThreads env (ma:mas') = do
         var <- liftIO newEmptyMVar
-        liftIO . forkIO $ ((runReaderT ma env) >>= putMVar var)
+        liftIO . void . forkIO $ (runReaderT ma env >>= putMVar var)
         (var:) <$> forkThreads env mas'
       awaitThreads [] = return []
       awaitThreads (v:vs) = do
@@ -251,8 +252,8 @@ runNetworkIO conf = do
       return (nodeID, inbox, code)
   let mapping = Map.fromList [(nodeID, inbox) | (nodeID, inbox, _) <- envs]
   output <- newChan
-  sequence $ flip fmap network  $ \(nodeID, code) ->
-    void $ forkIO $ void $ runReaderT (code >>= epilogue output . (nodeID,)) (nodeID, mapping Map.! nodeID, mapping)
+  sequence_ . flip fmap network  $ \(nodeID, code) ->
+    forkIO . void $ runReaderT (code >>= epilogue output . (nodeID,)) (nodeID, mapping Map.! nodeID, mapping)
   getChanContents output
 
   where

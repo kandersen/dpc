@@ -9,6 +9,7 @@ module NetSim.GUI (
 import NetSim.Core
 import NetSim.Invariant
 import NetSim.PrettyPrint
+import NetSim.Util
 
 import Brick
 import Brick.Forms
@@ -78,11 +79,6 @@ renderNetwork AppState{..} = return $
           (vBox (fmap (str . show) _transitions))
     <=> borderWithLabel (str "Make a choice by pressing enter while the field reads <n> for 1 to # of options")
           (renderForm _form)
-
-groupsOf :: Int -> [a] -> [[a]]
-groupsOf n xs = case Prelude.splitAt n xs of
-  (grp, []) -> [grp]
-  (grp, xs') -> grp : groupsOf n xs'
 
 renderNetworkApp :: Show s => App (AppState m s) () ResourceName
 renderNetworkApp = App {
