@@ -7,6 +7,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 module NetSim.Language where
 
 import NetSim.Core
@@ -34,11 +35,15 @@ type Packet = (Label, String, [Int], NodeID)
 -- Language primitives
 --
 class Monad m => MonadDiSeL m where
+  type Ref m :: (* -> *)
   send :: Label -> String -> [Int] -> NodeID -> m ()
   receive :: Label -> [String] -> m (Maybe Packet)
   this :: m NodeID
   par :: [m a] -> ([a] -> m c) -> m c
-
+  allocRef :: a -> m (Ref m a)
+  readRef :: Ref m a -> m a
+  writeRef :: Ref m a -> a -> m ()
+  casRef :: Eq a => Ref m a -> a -> a -> m Bool
 --
 -- Compound operations
 --
@@ -214,6 +219,11 @@ stepThrough format (x:xs) = do
 type Runner = ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) IO
 
 instance MonadDiSeL Runner where
+  type Ref Runner = MVar
+  allocRef a = liftIO $ newMVar a
+  readRef v = liftIO $ takeMVar v
+  writeRef v a = liftIO $ putMVar v a
+  casRef v a' b = liftIO $ modifyMVar v (\a -> return (if a == a' then b else a, a == a'))
   send label tag body to = do
     (nodeID, _, channels) <- ask
     lift $ writeChan (channels Map.! to) (label, tag, body, nodeID)

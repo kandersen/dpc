@@ -4,16 +4,18 @@ module NetSim.Examples.DistributedLocking where
 import NetSim.Core
 
 data State = ClientInit NodeID NodeID Int
-                  | ClientAcquired NodeID NodeID Int Int
-                  | ClientUpdateDone NodeID Int
-                  | ClientDone
-                  | LockIdle Int
-                  | LockHeld Int Int
-                  | ResourceIdle NodeID Int
-                  | ResourceVerifying NodeID (NodeID, Int, Int) Int
-                  | ResourceModifySucceeded NodeID NodeID Int
-                  | ResourceModifyFailed NodeID NodeID Int
-                  deriving Show
+           | ClientAcquired NodeID NodeID Int Int
+           | ClientUpdateDone NodeID Int
+           | ClientDone
+           | LockIdle Int
+           | LockHeld Int Int
+           | ResourceIdle NodeID Int
+           | ResourceVerifying NodeID (NodeID, Int, Int) Int
+           | ResourceModifySucceeded NodeID NodeID Int
+           | ResourceModifyFailed NodeID NodeID Int
+           deriving Show
+
+-- Spec
 
 acquire :: Protlet f State
 acquire = RPC "Acquire" client server
@@ -122,3 +124,5 @@ initNetwork = initializeNetwork nodes protlets
                , (0, verifyToken)
                , (0, release)
                ]
+
+-- Implementation
