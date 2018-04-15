@@ -145,11 +145,10 @@ initConf = Configuration {
     _confSoup = [],
     _confNodes = [0, 1],
     _confNodeStates = fromList [
---        (serverID, dbServer instances),
---        (1, clientIO 3 serverID),
---        (2, snapshotter instances serverID)
+      (1, clientIO 3 serverID), 
+      (serverID, compositeServer instances 47)
     ]
 }
   where
-    serverID = 0
-    instances = [0..5]
+    serverID = 0 :: Label
+    instances = [0..5] :: [Label]
