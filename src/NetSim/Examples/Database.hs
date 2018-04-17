@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 module NetSim.Examples.Database where
 
 import NetSim.Language
@@ -11,16 +12,40 @@ import qualified Data.Map as Map
 
 -- | Specification
 
-data S = Client NodeID [Int]
+data S = ClientRead NodeID 
+       | ClientWrite NodeID Int
+       | ClientIdle NodeID
        | Server Int 
+       | SnapshotServer [Int]
+       | SnapshotClient NodeID
+       | SnapshotClientDone [Int]
 
 clientRead :: Protlet f S
 clientRead = RPC "Read" clientStep serverStep
   where
-    clientStep (Client serverID history) = Just (serverID, [], clientReceive serverID history)
-    clientReceive serverID history [v] = Client serverID (v : history)
+    clientStep = \case 
+      ClientRead serverID -> Just (serverID, [], clientReceive serverID)
+      _ -> Nothing
+    clientReceive serverID [_] = ClientIdle serverID
     serverStep [] (Server n) = Just ([n], Server n)
 
+clientWrite :: Protlet f S
+clientWrite = RPC "Write" clientStep serverStep
+  where
+    clientStep :: ClientStep S
+    clientStep = \case
+      ClientWrite serverID n -> Just (serverID, [n], clientReceive serverID)
+      _ -> Nothing
+    clientReceive serverID [1] = ClientIdle serverID
+    serverStep [v] (Server _) = Just ([1], Server v)
+
+requestSnapShot :: Protlet f S
+requestSnapShot = RPC "Snap" clientStep serverStep
+  where
+    clientStep = \case
+      SnapshotClient serverID -> Just (serverID, [], SnapshotClientDone)
+    serverStep [] (SnapshotServer snap) = Just (snap, SnapshotServer snap)
+      
 -- | Implementation
 
 
@@ -69,21 +94,37 @@ mkDB initMap = do
     return (k, c)
   return $ DBState (fromList locks) (fromList cells)
 
+readDB :: MonadDiSeL m => DBState m -> Label -> m Int
+readDB db label = do
+  readerEnter lock
+  v <- readRef cell
+  readerExit lock
+  return v
+  where
+    lock = (Map.! label) . _locks $ db
+    cell = (Map.! label ). _cells $ db
+
+
+writeDB :: MonadDiSeL m => DBState m -> Label -> Int -> m ()
+writeDB db label val = do
+  writerEnter lock
+  writeRef cell val
+  writerExit lock
+  where
+    lock = (Map.! label) . _locks $ db
+    cell = (Map.! label ). _cells $ db
+
 dbServer :: MonadDiSeL m => DBState m -> m a
 dbServer db = par (oneCell <$> (Map.keys . _cells) db ) undefined
   where
     oneCell label = do
       (_, tag, msg, client) <- spinReceive label ["Read__Request", "Write__Request"]
       case (tag, msg) of
-        ("Read__Request", []) -> do            
-            readerEnter $ (Map.! label) . _locks $ db
-            val <- readRef $ (Map.! label) . _cells $ db
-            readerExit $ (Map.! label) . _locks $ db
+        ("Read__Request", []) -> do                      
+            val <- readDB db label
             send label "Read__Response" [val] client
         ("Write__Request", [v]) -> do
-            writerEnter $ (Map.! label) . _locks $ db
-            writeRef ((Map.! label) . _cells $ db) v
-            writerExit $ (Map.! label) . _locks $ db
+            writeDB db label v
             send label "Write__Response" [1] client
       oneCell label
 
@@ -103,16 +144,27 @@ snapshotter' :: MonadDiSeL m => Label -> DBState m -> m a
 snapshotter' label db = do
     firstSnap <- takeSnap
     snapLoc <- allocRef firstSnap
-    par [snapper snapLoc, messenger snapLoc] undefined
+    par [lookForChanges snapLoc, messenger snapLoc] undefined
   where
+--    takeSnap :: MonadDiSeL m => m [Int]
     takeSnap = do
       forM_ (Map.elems . _locks $ db) $ readerEnter
-      vs <- forM (Map.elems . _cells $ db) readRef
+      vs <- Map.elems <$> forM (_cells $ db) readRef
       forM_ (Map.elems . _locks $ db) $ readerExit
       return vs
-    snapper loc = do
-      writeRef loc =<< takeSnap
-      snapper loc
+    lookForChanges loc = do
+      oldSnap <- readRef loc
+      go oldSnap $ Map.keys . _locks $ db
+      where
+        go _ [] = lookForChanges loc
+        go (s:ss) (l:ls) = do
+          v <- readDB db l
+          if v == s 
+            then go ss ls
+            else do
+              takeSnap >>= writeRef loc
+              lookForChanges loc
+
     messenger loc = do
       (_, _, _, client) <- spinReceive label ["Snap__Request"]
       ans <- readRef loc
