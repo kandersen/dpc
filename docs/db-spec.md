@@ -1,12 +1,14 @@
 # DB Spec
-    
+```   
 data DBState m = DBState {
   _locks :: Map Label (RWLock m),
   _cells :: Map Label (Ref m Int)
 }
 
 WellFormedDB(Labels, DBState locks cells) := Dom(locks) == Labels == Dom(cells)
+```
 
+```
 type RWLock m = Ref m Int
 
 region RWLock(r, x) {
@@ -43,7 +45,9 @@ writerEnter :: MonadDiSeL m => RWLock m -> m ()
 writerExit :: MonadDiSeL m => RWLock m -> m ()
   requires RWLock(r, l, 2) * r@LOCK|-1|;
   ensures RWLock(r, l, __);
+```
 
+```
 mkDB labels :: MonadDiSeL m => Map Label Int -> m (DBState m)
   requires ;
   ensures WellFormedDB(labels, ret);
@@ -54,11 +58,15 @@ readDB db label :: MonadDiSeL m => DBState m -> Label -> m Int
 
 writeDB :: MonadDiSeL m => DBState m -> Label -> Int -> m ()
   requires 
+```
+
+```
 dbServer :: MonadDiSeL m => DBState m -> m a
 snapshotter' :: MonadDiSeL m => Label -> DBState m -> m a
 compositeServer :: MonadDiSeL m => [Label] -> Label -> m a 
+```
 
-
+```
 rpcCall :: Label -> String -> [Int] -> NodeID -> m [Int]
 rpcCall[l](tag, msg, server) :
   { RPC[l](tag, CStep, _) * n |-> state * CStep(state) = Just (msg, server, k) }
@@ -85,8 +93,11 @@ spinReceive[response(RPC[l], tag, CStep, SStep)] :
   { RPC[l](tag, CStep, SStep) * n |-> BlockingOn(tag, k) }
   { RPC[l](tag, CStep, SStep) * 
     n |-> k res }
-pinReceive label tags = do
+spinReceive label tags = do
     mmsg <- receive label tags
     case mmsg of
       Nothing -> spinReceive label tags
       Just msg -> return msg
+```
+
+Hmm, we probably need something akin to the `interpretation ` section of Caper to the tie the States of the protlet statespace to concrete states in the proofs. E.g. `ClientWrite Int` is symbolically the intent to write an integer, but that can be realized in different ways in actual code. 
