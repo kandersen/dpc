@@ -42,12 +42,34 @@ This spec says a node in state `ClientInit server a b` can initiate the RPC by s
 All these messages are appropriately based on the "Add" name used in the RPC constructor. 
 
 The instrumented messaging primitives can then be given Hoare-style specs based on the transitions they are decorated with, as follows from the diesel paper:
+```
+C |-_n send[st, l](msg, to) :
+          { n |->_l s /\ st.pre(n, to, m, s) }
+          { n |->_l s' /\ st.step(n, to, m, s) = s' }
+```
 
-`send[st, l](msg, nid) : { st.pre }{ Q }`
+The idea now is that we can derive transitions from the RPC description. Perhaps `translation` functions like `ClientCall :: RPC -> Label ->  Transition`, `ServerReturn :: RPC -> Transition`, taking the above `add :: RPC` as the example, recall that it is defined by a `"Add" :: Tag`, `clientStep :: State -> Maybe (NodeID, [Int], [Int] -> State)` and `serverStep :: State -> Maybe ([Int] -> State)`.
 
-The idea now is that we can derive transitions from the RPC description. Perhaps `translation` functions like `Call :: RPC -> Transition`, `Return :: RPC -> Transition`, `Receive :: RPC -> Transition`, taking the above `add :: RPC` as the example:
+```
+ClientCall(rpc, l) = 
+  \node, to, msg, statelet -> statelet(node, l) = Running s /\ rpc.clientStep(s) = Just(to, msg, k),
+  \node, to, msg, statelet ->
+    let (Running s) = statelet(node, l) in 
+    let Just(to, msg, k) = clientStep(s) in
+    statelet[(node, l) |-> BlockingOn(tag, to, k)]#statelet.MS + (l, n, tag, msg, from, )
+```
 
-`send[ClientCall(add)](msg, to) : {} {}`
+```
+send[ClientCall(add, l)]([a, b], server) : 
+  { n |->_l Running (ClientInit server a b) }
+  { n |->_l BlockingOn ("Add__Response", server, ClientDone . head) }
+
+receive[ClientReturn(add, l)] : 
+  { n |->_l BlockingOn ("Add__Response", server, ClientDone . head) }
+  { if res = Some(Add__Response(server, ans) 
+    then n |->_l Running (ClientDone . head $ ans)
+    else n |->_l BlockingOn ("Add__Response", server, ClientDone . head) } 
+```
 `receive[ServerCall(add)] : {} {}`
 `send[ServerReturn(add)](msg, to) : {} {}`
 `receive[ClientReturn(add)] : {} {}`
