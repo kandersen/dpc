@@ -1,4 +1,70 @@
 # DB Spec
+
+Basic assertion logic contains points to assertions parameterised by the protocol instance. They point to local state of the node. THe basic form of the triple is
+
+C |-^n p : {P}{Q}
+
+Where C is a collection if protocols, n is the name of the current or executing node (the value of `this`, the name at which messages are received and the sender of any messages sent by the program `p`).
+
+Each node has some default state, the local state assertion is as follows:
+
+n |->_l (inbox, s)
+
+where l is a protocol instance label, inbox is a multiset of messages, s is a (NodeState s) parameterised by an l-protocolwide specificed statespace.
+
+A message is a 5-tuple of `label x nid x tag x [int] x nid` consisting of a protocol instance, a sender, a tag, a payload and a receiver.
+
+DiSeL has as key abstraction in the specification of distributed systems the notion of _transition_. The primitive distributed operations of the programming language, _send_ and _receive_ are instrimunted by these transitions. These instrumentations can be erased - the operational behaviour is not influenced by the transitions of the protocol, only the proof burden.
+
+> Do they serve as programmer intent annotations? _this_ is where _this_ step of _that_ protocol takes place?
+
+Defining transitions turns out to be somewhat derivative work where a number of distributed algorithms make use of standard patterns of communication - hence, the transitions are formulated according to pattern. One such pattern is the remote procedure call (RPC) where a client sends a message to a server that performs some computation before responding with a result. From a client perspective, if it was to block and await that response, it in essence functions as a procedure call, just running remotely.
+
+A transitions are pairs of _conditions_ and _step_ transformations that describe the precondition for performing a transition and the update to the local state.
+
+A pattern like RPC involves 4 such transitions: the caller sending, the server receiving then responding, and finally the caller receiving the response. 
+
+Part of this work is the observation that these transitions can be generated from simpler descriptions.
+
+An RPC for an addition function might look as follows:
+
+```
+add = RPC "Add" clientStep serverStep
+  where
+    clientStep s = case s of
+      ClientInit server a b -> Just (server, [a, b], ClientDone . head)
+      _ -> Nothing
+    serverStep Server [a, b] = Just([a + b], Server)
+```
+
+This spec says a node in state `ClientInit server a b` can initiate the RPC by sending '[a, b]' to `server`, and then blocking until a response is received from `server`. A node can process that request once it's in state `Server`, where it will respond with `[a + b]` and continue as a server. The client will continue in state `ClientDone n` upon receiving `[n]` from the server.
+
+All these messages are appropriately based on the "Add" name used in the RPC constructor. 
+
+The instrumented messaging primitives can then be given Hoare-style specs based on the transitions they are decorated with, as follows from the diesel paper:
+
+`send[st, l](msg, nid) : { st.pre }{ Q }`
+
+The idea now is that we can derive transitions from the RPC description. Perhaps `translation` functions like `Call :: RPC -> Transition`, `Return :: RPC -> Transition`, `Receive :: RPC -> Transition`, taking the above `add :: RPC` as the example:
+
+`send[ClientCall(add)](msg, to) : {} {}`
+`receive[ServerCall(add)] : {} {}`
+`send[ServerReturn(add)](msg, to) : {} {}`
+`receive[ClientReturn(add)] : {} {}`
+
+With these in hand, we can build even higher-level combinators for the client and server side of the RPC as follows:
+
+`rpcCall[add](server, args) : {} {}`
+`handleRPC[add](handler) : {} {}`
+
+perhaps built with other higher-level operations like
+
+`spinReceive[T, L] : {}{}`
+
+
+
+
+
 ```   
 data DBState m = DBState {
   _locks :: Map Label (RWLock m),
