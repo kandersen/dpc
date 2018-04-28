@@ -237,7 +237,7 @@ add |-_n send[ClientCall(add, l)]([a, b], server) :
   { n |->_l BlockingOn ("Add__Response", server, ClientDone . head)
     /\ message soup has message to server }
 
-receive[ClientReturn(add, l)] : 
+add |-_n receive[ClientReturn(add, l)] : 
   { n |->_l BlockingOn ("Add__Response", server, ClientDone . head) }
   { if res = Some(Add__Response(server, ans) 
     then n |->_l Running (ClientDone . head $ ans)
