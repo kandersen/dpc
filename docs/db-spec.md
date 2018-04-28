@@ -20,7 +20,23 @@ versus
 ```
 
 
-Spec:
+## Spec
+
+Recall we build local state assertions for node `n` by wrapping a protocol specific state `s` in the constructors
+
+```
+data NodeState s = Running s
+                 | BlockingOn NodeID Tag ([Int] -> s)
+```
+
+This has a pcm structure, assuming we have a pcm structure for `s`:
+
+```
+Running s • Running s' = Running (s • s') if s • s' defined
+BlockingOn id t k • BlockingOn id t k = BlockingOn id t k
+undefined otherwise
+```
+
 
 ```
 data States = Client NodeID [Int]
@@ -29,9 +45,17 @@ data States = Client NodeID [Int]
 pcm of states:
 
 (Client n args) • (Client n args) = Client n args
-(Server ms) • (Server ms') = Server (ms `disjointUnion` ms') if ms # ms'
+(Server ms) • (Server ms') = Server (ms \+ ms') if ms # ms'
 _ • _ otherwise is undefined
+```
 
+This induces a PCM on the local state assertions. Let the current node be `n`, then
+
+``` 
+n |-> Running (Server reqs) <=> n |-> Running (Server reqs1) * Running (Server reqs2) where reqs = reqs1 \+ reqs2 and reqs1 # reqs2
+```
+
+```
     Request(args)
      /----->
 ( C )        ( S )
@@ -44,35 +68,23 @@ process = ARPC "Process" clientStep serverReceive serverSend
       Just $ (server, [n], Client server)
 
     serverReceive msg (Server reqs) =
-      Just $ Server $ (_msgFrom msg, _msgBody msg) : reqs
+      Just $ Server $ reqs \+ (_msgFrom msg, _msgBody msg)
 
     serverSend _ (Server reqs) = do
       req@(client, args) <- reqs
       pure (Message client "Process__Response" [sum args], Server $ reqs - req)
 ```
 
-This induces some resources that are passed around the send/receive primitives:
-
 ```
-CanRequest(id)
-CanRespond(id)
-
-where
-
-CanRespond(c) * CanRespond(c) <=> False
-CanRequest(c) * CanRequest(c) <=> False
-```
-
-```
-receive[ServerReceive(ARPC)] :
-  { True }
+receive[ServerReceive(ARPC)] ["Process__Request"] :
+  { n |-> Running (Server reqs) }
   { if res = Some msg
-    then CanRespond(msg.sender)
-    else True }
+    then n |-> Running (Server $ reqs \+ (msg.sender, msg.body))
+    else n |-> Running (Server reqs) }
 
-send[ServerRespond(arpc)](id, msg) :
-  { CanRespond(id) }
-  { True }
+send[ServerRespond(arpc)] "Process__Response" id [sum args] :
+  { n |-> Running (Server $ reqs \+ (id, args)) }
+  { n |-> Running (Server $ reqs) }
 ```
 
 from which we should be able to build an interference-relation on states.
@@ -100,39 +112,40 @@ forever :: M a -> M b
   -------------------------
   { I } forever c { _. False }
 
-QI(client, args) = CanRespond(client)
+QI(client) = exists reqs, args. n |-> Running (Server (reqs \+ (client, args)))
 
 spinReceiveInto :: (q : Queue [(NodeID, [Int])]) -> M ()
 spinReceiveInto q = do
-    { Queue(q,QI) }
+    { Queue(q,QI) * n |-> Running (Server reqs) }
   (_, client, args, _) <- spinReceive[ServerReceive(process)] ["Process__Request"]
-    { CanRespond(client) /\ Queue(q,QI) }
+    { Queue(q,QI) * n |-> Running (Server $ reqs \+ (client, args)) }
+    { Queue(q,QI) * n |-> Running (Server reqs) * n |-> Running (Server $ emp \+ (client, args) }
   push (client, args) q
-    { (). Queue(q,Q) }
+    { (). Queue(q,Q) * n |-> Running (Server reqs) }
 
 process :: (q : Queue[(NodeID, [Int])]) -> M ()
 process q = do
     { Queue(q,QI) }
   (client, args) <- pop q
-    { QI(client, args) /\ Queue(q, QI) }
-    { CanRespond(client) /\ Queue(q, QI) }
-  send[ServerResponse(process)] "Process__Response" client (f args)
+    { Queue(q, QI) * n |-> Running (Server (client, args)) }
+  send[ServerResponse(process)] "Process__Response" client [sum args]
     { Queue(q,QI) }
 
 server1 :: Queue[(NodeID, [Int])] -> M a
 server1 q = forever $ do
-    { Queue(q, QI) }
+    { Queue(q, QI) * n |-> Running (Server _)) }
   spinReceiveInto q
-    { Queue(q, QI) }
+    { Queue(q, QI) * n |-> Running (Server _)) }
   process q
-    { Queue(q, QI) }
-
+    { Queue(q, QI) * n |-> Running (Server _)) }
   { False }
 
 server2 :: Queue[(NodeID, [Int])] -> M a
 server2 q = 
-  { Queue(q, QI) }
-  { Queue(q, QI) * Queue(q, QI) * Queue(q, QI) }
+  { Queue(q, QI) * n |-> Running (Server _) }
+  { Queue(q, QI) * n |-> Running (Server _)   -- P1
+    * Queue(q, QI)                            -- P2
+    * Queue(q, QI) }                          -- P3
   par [ forever (spinReceiveInto q )
       , forever (process q)
       , forever (process q)] 
