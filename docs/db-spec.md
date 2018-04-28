@@ -1,3 +1,149 @@
+# Round 3
+
+The question is whether either of the following two server implementations satisfy the the spec { True }{ False }: i.e., endlessly running server loop that obeys an asynchronous RPC protocol where these implementations play the role of servers. Internally, they use a queue in local shared memory to communicate the incomming requests between a receiver and a handler loop. Ideally, we would like to be able to show the spec of both a sequential implementation and of a parallel, where the receiver is concurrently running alongside one or more handlers.
+
+Compare
+
+```
+while(true) {
+  spinReceiveInto(q);
+  process(q);
+}
+```
+
+versus
+
+```
+   while(true) { spinReceiveInto(q) }
+|| while(true) { process(q) }
+|| while(true) { process(q) }
+```
+
+
+Spec:
+
+```
+data States = Client NodeID [Int]
+            | Server (MultiSet (NodeID, [Int]))
+
+pcm of states:
+
+(Client n args) • (Client n args) = Client n args
+(Server ms) • (Server ms') = Server (ms `disjointUnion` ms') if ms # ms'
+_ • _ otherwise is undefined
+
+    Request(args)
+     /----->
+( C )        ( S )
+      <-----/
+  Response(f(args))
+
+process = ARPC "Process" clientStep serverReceive serverSend
+  where
+    clientStep (Client server n) =
+      Just $ (server, [n], Client server)
+
+    serverReceive msg (Server reqs) =
+      Just $ Server $ (_msgFrom msg, _msgBody msg) : reqs
+
+    serverSend _ (Server reqs) = do
+      req@(client, args) <- reqs
+      pure (Message client "Process__Response" [sum args], Server $ reqs - req)
+```
+
+This induces some resources that are passed around the send/receive primitives:
+
+```
+CanRequest(id)
+CanRespond(id)
+
+where
+
+CanRespond(c) * CanRespond(c) <=> False
+CanRequest(c) * CanRequest(c) <=> False
+```
+
+```
+receive[ServerReceive(ARPC)] :
+  { True }
+  { if res = Some msg
+    then CanRespond(msg.sender)
+    else True }
+
+send[ServerRespond(arpc)](id, msg) :
+  { CanRespond(id) }
+  { True }
+```
+
+from which we should be able to build an interference-relation on states.
+
+```
+type Queue a
+
+Queue(q, P) <=> Queue(q, P) * Queue(q, P)
+
+push :: (a : a) -> (q : Queue a) -> M ()
+  { P(a) /\ Queue(q, P) }
+  { (). Queue(q, P) }
+pop :: (q : Queue a) -> M a
+  { Queue(q, P) }
+  { (). P(ret) /\ Queue(q, P) }
+
+par :: [M a] -> ([a] -> M b) -> M b
+  forall i. { P_i } cs !! i { x_i. R_i x }
+  forall i. { * R_i (xs !! i) } k xs { r. Q } 
+ -------------------------------------------
+        { * P_i } par cs k { r. Q }
+
+forever :: M a -> M b
+        { I } c { I }
+  -------------------------
+  { I } forever c { _. False }
+
+QI(client, args) = CanRespond(client)
+
+spinReceiveInto :: (q : Queue [(NodeID, [Int])]) -> M ()
+spinReceiveInto q = do
+    { Queue(q,QI) }
+  (_, client, args, _) <- spinReceive[ServerReceive(process)] ["Process__Request"]
+    { CanRespond(client) /\ Queue(q,QI) }
+  push (client, args) q
+    { (). Queue(q,Q) }
+
+process :: (q : Queue[(NodeID, [Int])]) -> M ()
+process q = do
+    { Queue(q,QI) }
+  (client, args) <- pop q
+    { QI(client, args) /\ Queue(q, QI) }
+    { CanRespond(client) /\ Queue(q, QI) }
+  send[ServerResponse(process)] "Process__Response" client (f args)
+    { Queue(q,QI) }
+
+server1 :: Queue[(NodeID, [Int])] -> M a
+server1 q = forever $ do
+    { Queue(q, QI) }
+  spinReceiveInto q
+    { Queue(q, QI) }
+  process q
+    { Queue(q, QI) }
+
+  { False }
+
+server2 :: Queue[(NodeID, [Int])] -> M a
+server2 q = 
+  { Queue(q, QI) }
+  { Queue(q, QI) * Queue(q, QI) * Queue(q, QI) }
+  par [ forever (spinReceiveInto q )
+      , forever (process q)
+      , forever (process q)] 
+      undefined
+  }
+  { _ . False }
+```
+
+
+
+
 # DB Spec - Take 2
 
 Basic assertion logic contains points to assertions parameterised by the protocol instance. They point to local state of the node. The basic form of the triple is
