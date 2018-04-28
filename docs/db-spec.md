@@ -369,4 +369,4 @@ spinReceive label tags = do
       Just msg -> return msg
 ```
 
-Hmm, we probably need something akin to the `interpretation ` section of Caper to the tie the States of the protlet statespace to concrete states in the proofs. E.g. `ClientWrite Int` is symbolically the intent to write an integer, but that can be realized in different ways in actual code. 
+>Hmm, we probably need something akin to the `interpretation ` section of Caper to the tie the States of the protlet statespace to concrete states in the proofs. E.g. `ClientWrite Int` is symbolically the intent to write an integer, but that can be realized in different ways in actual code. 
