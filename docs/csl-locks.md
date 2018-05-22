@@ -32,7 +32,13 @@ handler l r = do
   handler l r
 ```
 
-where `put` and `take` lock `r` suitably:
+where `put` and `take` lock `r` suitably using `using` blocks. The `using` block can be specified along the lines of
+
+```
+{ P /\ (x |-> v) /\ (I v) } c { ret. Q ret /\ (x |-> v') /\ (I v') }
+--------------------------------------------------------------------
+           x : Ref a I |- { P } using x c { ret. Q ret }
+```
 
 ```
 put :: a -> OPB a I -> M ()
