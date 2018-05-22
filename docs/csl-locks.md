@@ -41,8 +41,8 @@ where `put` and `take` lock `r` suitably using `using` blocks. The `using` block
 ```
 
 ```
-put :: a -> OPB a I -> M ()
-put { I (Just a) }
+put :: (v : a) -> OPB a I -> M ()
+put { I (Just v) }
     { _. True }
 put a r = do
   b <- using r $ do
@@ -59,7 +59,7 @@ put a r = do
 
 take :: Eq a => OPB a -> M a
 take { True }
-     { I (Just a)  }
+     { ret. I (Just ret) }
 take r = do
   res <- using r $ do
     ma <- readRef r
