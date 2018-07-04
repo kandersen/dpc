@@ -66,7 +66,7 @@ initNetwork = initializeNetwork nodes protlets
 calculatorServer :: MonadDiSeL m => Label -> m a
 calculatorServer label = do
   (_, _, [x, y], client) <- spinReceive label ["Compute__Request"]
-  send label "Compute__Response" [x + y] client
+  send (label, "Compute__Response", [x + y], client)
   calculatorServer label
 
 calculatorClient :: MonadDiSeL m => Label -> Int -> Int -> NodeID -> m Int

@@ -36,7 +36,7 @@ type Packet = (Label, String, [Int], NodeID)
 --
 class Monad m => MonadDiSeL m where
   type Ref m :: (* -> *)
-  send :: Label -> String -> [Int] -> NodeID -> m ()
+  send :: Packet -> m ()
   receive :: Label -> [String] -> m (Maybe Packet)
   this :: m NodeID
   par :: [m a] -> ([a] -> m c) -> m c
@@ -57,14 +57,14 @@ spinReceive label tags = do
 rpcCall :: MonadDiSeL m =>
   Label -> String -> [Int] -> NodeID -> m [Int]
 rpcCall label protlet body to = do
-  send label (protlet ++ "__Request") body to
+  send (label, protlet ++ "__Request", body, to)
   (_, _, resp, _) <- spinReceive label [protlet ++ "__Response"]
   return resp
 
 broadcastQuorom :: (MonadDiSeL m, Ord fraction, Fractional fraction) =>
   fraction -> Label -> String -> [Int] -> [NodeID] -> m [Packet]
 broadcastQuorom fraction label protlet body receivers = do
-  traverse_ (send label (protlet ++ "__Broadcast") body) receivers
+  traverse_ (\to -> send (label, protlet ++ "__Broadcast", body, to)) receivers
   spinForResponses []
   where    
     spinForResponses resps 
@@ -88,13 +88,6 @@ data Configuration m a = Configuration {
   }
   deriving Show
 
-ppConf :: Show a => Configuration DiSeL a -> String
-ppConf Configuration{..} = unlines $ ("Soup: " ++ show _confSoup) :
-   [ concat [show nodeid, ": ", ppDiSeL' state] | (nodeid, state) <- Map.toList _confNodeStates ]
-  where
-    ppDiSeL' (Pure a) = "Returned " ++ show a
-    ppDiSeL' a = ppDiSeL a
-
     --
 -- Pure implementation.
 --
@@ -110,14 +103,6 @@ data DiSeL a = Pure a
              | Receive Label [String] (Maybe Packet -> DiSeL a)
              | This (NodeID -> DiSeL a)
              | forall b. Par [(Int, DiSeL b)] ([b] -> DiSeL a)
-
-ppDiSeL :: DiSeL a -> String
-ppDiSeL (Pure _) = "Pure <val>"
-ppDiSeL (Bind ma _) = concat ["Bind(", ppDiSeL ma, ", <Cont>)"]
-ppDiSeL (Send label tag body to k) = concat ["Send[", show label, ", ", tag, "](", show body, ", ", show to, ", ", ppDiSeL k]
-ppDiSeL (Receive label tags _) = concat ["Receive[", show label, ", {", show tags, "}] <Cont>)"]
-ppDiSeL (This _) = "This <Cont>"
-ppDiSeL (Par mas _) = "Par [" ++ intercalate "," (ppDiSeL . snd <$> mas) ++ "]"
 
 instance Show a => Show (DiSeL a) where
   show (Pure a) = "Pure " ++ show a
@@ -148,7 +133,7 @@ instance Monad DiSeL where
   (>>=) = Bind
 
 instance MonadDiSeL DiSeL where
-  send label tag body receiver = Send label tag body receiver (pure ())
+  send (label, tag, body, receiver) = Send label tag body receiver (pure ())
   receive label tags = Receive label tags pure
   this = This pure
   par as = Par (zip [0..] as)
@@ -205,13 +190,7 @@ runPure initConf = go (cycle $ _confNodes initConf) initConf
                      Just msg -> msg : soup'
       let conf' = conf { _confNodeStates = states', _confSoup = soup'' }
       ((mmsg, conf'):) <$> go schedule' $ conf'
-  
-stepThrough :: (a -> String) -> [a] -> IO ()
-stepThrough      _     [] = return ()
-stepThrough format (x:xs) = do
-  putStrLn $ format x
-  _ <- getLine
-  stepThrough format xs
+
 
 --
 -- IO Implementation with real threads!
@@ -224,7 +203,7 @@ instance MonadDiSeL Runner where
   readRef v = liftIO $ takeMVar v
   writeRef v a = liftIO $ putMVar v a
   casRef v a' b = liftIO $ modifyMVar v (\a -> return (if a == a' then b else a, a == a'))
-  send label tag body to = do
+  send (label, tag, body, to) = do
     (nodeID, _, channels) <- ask
     lift $ writeChan (channels Map.! to) (label, tag, body, nodeID)
   receive label tags = do
@@ -269,47 +248,3 @@ runNetworkIO conf = do
   where
     epilogue :: Chan a -> a -> Runner ()
     epilogue output a = liftIO $ writeChan output a
-
---
--- Tests
---
-simpleConf :: MonadDiSeL m => m a -> Configuration m a
-simpleConf code = Configuration {
-  _confNodes = [0],
-  _confSoup = [],
-  _confNodeStates = Map.fromList [(0, code)]
-  }
-
-simpleConf' :: MonadDiSeL m => [m a] -> Configuration m a
-simpleConf' codes = Configuration {
-  _confNodes = [0..length codes - 1],
-  _confSoup = [],
-  _confNodeStates = Map.fromList $ zip [0..] codes
-}
-
-test1 :: MonadDiSeL m => m Int
-test1 = return 42
-
-test2a :: MonadDiSeL m => m Int
-test2a = send 0 "test" [42] 1 >> return 0
-
-test2b :: MonadDiSeL m => m Int
-test2b = spinReceive 0 ["test"] >>= (\(_, _, [ans],_) -> return ans)
-
-test3s :: MonadDiSeL m => m a
-test3s = do
-  (_, _, [x], c) <- spinReceive 0 ["testQ"]
-  send 0 "testA" [x + 1] c
-  test3s
-
-test3c :: MonadDiSeL m => Int -> m Int
-test3c n = do
-  send 0 "testQ" [n] 0
-  (_, _, [ans], _) <- spinReceive 0 ["testA"]
-  return ans
-
-test4 :: MonadDiSeL m => m [Int]
-test4 = par (pure <$> [0..10]) pure
-
-test3s' :: MonadDiSeL m => m a
-test3s' = par [test3s, pure undefined] (const test3s')

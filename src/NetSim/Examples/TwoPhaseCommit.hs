@@ -289,6 +289,6 @@ tpcClient label n b = do
   case (tag, body) of
       ("Prepare__Broadcast", []) ->
         if n `mod` b == 0
-        then send label "Prepare__Response" [1] server
-        else send label "Prepare__Response" [0] server
+        then send (label, "Prepare__Response", [1], server)
+        else send (label, "Prepare__Response", [0], server)
   tpcClient label (n + 1) b

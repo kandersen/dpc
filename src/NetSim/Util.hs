@@ -1,6 +1,13 @@
-module NetSim.Util where
+module NetSim.Util(
+  oneOfP,
+  oneOf,
+  snoc,
+  groupsOf,
+  stepThrough
+) where
 
 import Control.Applicative
+import Data.Foldable
 
 oneOfP :: Alternative m => (a -> Bool) -> [a] -> m (a, [a])
 oneOfP _ [] = empty
@@ -20,3 +27,8 @@ groupsOf :: Int -> [a] -> [[a]]
 groupsOf n xs = case splitAt n xs of
   (grp, []) -> [grp]
   (grp, xs') -> grp : groupsOf n xs'
+
+stepThrough :: (a -> String) -> [a] -> IO ()
+stepThrough pp = traverse_ (printAndAwait . pp)
+  where
+    printAndAwait x = putStrLn x >> getLine

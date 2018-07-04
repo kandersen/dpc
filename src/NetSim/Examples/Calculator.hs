@@ -45,7 +45,7 @@ polynomialServer addInstance mulInstance = par [loop mulInstance product, loop a
   where    
     loop label f = do
       (_, _, args, client) <- spinReceive label ["compute__Request"]
-      send label "compute__Response" [f args] client
+      send (label, "compute__Response", [f args], client)
       loop label f
 
 data Arith = Arith :+: Arith

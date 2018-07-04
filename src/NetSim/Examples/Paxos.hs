@@ -11,7 +11,7 @@ import qualified Data.Map as Map
 
 readRBR :: MonadDiSeL m => Label -> [NodeID] -> Int -> m (Bool, Maybe Int)
 readRBR lbl participants r = do
-  forM_ participants $ send lbl "Read__Request" [r]
+  forM_ participants $ \pt -> send (lbl, "Read__Request", [r], pt)
   spinForResponses 0 Nothing []
   where
     n :: Double
@@ -43,7 +43,7 @@ readRBR lbl participants r = do
 
 writeRBR :: MonadDiSeL m => Label -> [NodeID] -> Int -> Int -> m Bool
 writeRBR lbl participants r vW = do
-  forM_ participants $ send lbl "Write__Request" [r, vW]
+  forM_ participants $ \pt -> send (lbl, "Write__Request", [r, vW], pt)
   spinForResponses []
   where
     n :: Double
@@ -68,21 +68,21 @@ acceptor lbl = go Nothing 0 0
         ("Read__Request", [k]) -> 
             if k < r
               then do 
-                send lbl "Read__Response" [0, k] sender
+                send (lbl, "Read__Response", [0, k], sender)
                 go mv r w
               else do
                 let msg = case mv of
                             Nothing -> [1, k, 0, w]
                             Just v -> [1, k, 1, v, w]
-                send lbl "Read__Response" msg sender
+                send (lbl, "Read__Response", msg, sender)
                 go mv k w
         ("Write__Request", [k, vW]) ->
             if k < r
                 then do
-                  send lbl "Write__Response" [0, k] sender
+                  send (lbl, "Write__Response", [0, k], sender)
                   go mv r w
                 else do
-                  send lbl "Write__Response" [1, k] sender
+                  send (lbl, "Write__Response", [1, k], sender)
                   go (Just vW) k k
         _ -> error $ "Illformed request " ++ tag ++ ": " ++ show body
 

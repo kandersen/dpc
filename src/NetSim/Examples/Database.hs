@@ -122,10 +122,10 @@ dbServer db = par (oneCell <$> (Map.keys . _cells) db ) undefined
       case (tag, msg) of
         ("Read__Request", []) -> do                      
             val <- readDB db label
-            send label "Read__Response" [val] client
+            send (label, "Read__Response", [val], client)
         ("Write__Request", [v]) -> do
             writeDB db label v
-            send label "Write__Response" [1] client
+            send (label, "Write__Response", [1], client)
       oneCell label
 
 seconds :: Int -> Int
@@ -168,7 +168,7 @@ snapshotter' label db = do
     messenger loc = do
       (_, _, _, client) <- spinReceive label ["Snap__Request"]
       ans <- readRef loc
-      send label "Snap__Response" ans client
+      send (label, "Snap__Response", ans, client)
       messenger loc
 
 compositeServer :: MonadDiSeL m => [Label] -> Label -> m a 
