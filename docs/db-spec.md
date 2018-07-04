@@ -1,3 +1,167 @@
+# Round 4
+
+The question is whether either of the following two server implementations satisfy the the spec `{ True }{ False }`: i.e., endlessly running server loop that obeys an asynchronous RPC protocol where these implementations play the role of servers. Internally, they use a queue in local shared memory to communicate the incomming requests between a receiver and a handler loop. Ideally, we would like to be able to show the spec of both a sequential implementation and of a parallel, where the receiver is concurrently running alongside one or more handlers.
+
+Compare
+
+```
+while(true) {
+  spinReceiveInto(q);
+  process(q);
+}
+```
+
+versus
+
+```
+   while(true) { spinReceiveInto(q) }
+|| while(true) { process(q) }
+|| while(true) { process(q) }
+```
+
+
+## Spec
+
+Recall we build local state assertions for node `n` by wrapping a protocol specific state `s` in the constructors
+
+```
+data NodeState s = Running s
+                 | BlockingOn NodeID Tag ([Int] -> s)
+```
+
+This has a pcm structure, assuming we have a pcm structure for `s`:
+
+```
+Running s         • Running s'        = Running (s • s')  if s • s' defined
+BlockingOn id t k • BlockingOn id t k = BlockingOn id t k
+_                 • _                 undefined otherwise
+```
+
+
+```
+data States = Client NodeID [Int]
+            | ServerIdle
+            | ServerProcessing NodeID [Int]
+
+pcm of states:
+
+Client n args           • Client n args           = Client n args
+ServerIdle              • ServerIdle              = ServerIdle
+ServerProcessing n args • ServerProcessing n args = ServerProcessing n args
+_                       • _                       undefined otherwise
+```
+
+This induces a PCM on the local state assertions. Let the current node be `n`, protlet instance be `l` and `s` range over `States` as defined above
+
+``` 
+n |-l-> Running s <=> n |-l-> Running s * n |-l-> Running s
+```
+
+```
+       Request(args)
+         /----->
+    ( C )        ( S )
+          <-----/
+   Response([sum args])
+
+process = ARPC "Process" clientStep serverReceive serverSend
+  where
+    clientStep (Client server n) =
+      Just $ (server, [n], Client server)
+    clientStep                 _ = 
+      Nothing
+
+    serverReceive msg (ServerIdle reqs) =
+      Just $ ServerProcessing (_msgFrom msg) (_msgBody msg)
+    serverReceive _ _ = 
+      Nothing
+
+    serverSend _ (ServerProcessing client args) =
+      pure (Message client "Process__Response" [sum args], ServerIdle)
+    serverSend _ _ =
+      empty
+```
+
+```
+receive[ServerReceive(l, ARPC)] l ["Process__Request"] :
+  { n |-l-> Running ServerIdle }
+  { if res = Some msg
+    then n |-l-> Running (ServerProcessing msg.sender msg.body)
+    else n |-l-> Running ServerIde }
+
+send[ServerRespond(arpc, l)] l "Process__Response" id [sum args] :
+  { n |-l-> Running (ServerProcessing id args) }
+  { n |-l-> Running ServerIdle }
+```
+
+from which we should be able to build an interference-relation on states.
+
+```
+type Queue a
+
+Queue(q, P) <=> Queue(q, P) * Queue(q, P)
+
+push :: (a : a) -> (q : Queue a) -> M ()
+  { P(a) /\ Queue(q, P) }
+  { (). Queue(q, P) }
+pop :: (q : Queue a) -> M a
+  { Queue(q, P) }
+  { (). P(ret) /\ Queue(q, P) }
+
+par :: [M a] -> ([a] -> M b) -> M b
+  forall i. { P_i } cs !! i { x_i. R_i x }
+  forall i. { * R_i (xs !! i) } k xs { r. Q } 
+ -------------------------------------------
+        { * P_i } par cs k { r. Q }
+
+forever :: M a -> M b
+        { I } c { I }
+  -------------------------
+  { I } forever c { _. False }
+
+QI(client) = exists l args. n |-l-> Running (ServerProcessing client args)
+
+spinReceiveInto :: (q : Queue [(NodeID, [Int])]) -> M ()
+spinReceiveInto q = do
+    { Queue(q,QI) * n |-> Running (Server reqs) }
+  (_, client, args, _) <- spinReceive[ServerReceive(process)] ["Process__Request"]
+    { Queue(q,QI) * n |-> Running (Server $ reqs \+ (client, args)) }
+    { Queue(q,QI) * n |-> Running (Server reqs) * n |-> Running (Server $ emp \+ (client, args) }
+  push (client, args) q
+    { (). Queue(q,Q) * n |-> Running (Server reqs) }
+
+process :: (q : Queue[(NodeID, [Int])]) -> M ()
+process q = do
+    { Queue(q,QI) }
+  (client, args) <- pop q
+    { Queue(q, QI) * n |-> Running (Server (client, args)) }
+  send[ServerResponse(process)] "Process__Response" client [sum args]
+    { Queue(q,QI) }
+
+server1 :: Queue[(NodeID, [Int])] -> M a
+server1 q = forever $ do
+    { Queue(q, QI) * n |-> Running (Server _)) }
+  spinReceiveInto q
+    { Queue(q, QI) * n |-> Running (Server _)) }
+  process q
+    { Queue(q, QI) * n |-> Running (Server _)) }
+  { False }
+
+server2 :: Queue[(NodeID, [Int])] -> M a
+server2 q = 
+  { Queue(q, QI) * n |-> Running (Server _) }
+  { Queue(q, QI) * n |-> Running (Server _)   -- P1
+    * Queue(q, QI)                            -- P2
+    * Queue(q, QI) }                          -- P3
+  par [ forever (spinReceiveInto q )
+      , forever (process q)
+      , forever (process q)] 
+      undefined
+  }
+  { _ . False }
+```
+
+
 # Round 3
 
 The question is whether either of the following two server implementations satisfy the the spec { True }{ False }: i.e., endlessly running server loop that obeys an asynchronous RPC protocol where these implementations play the role of servers. Internally, they use a queue in local shared memory to communicate the incomming requests between a receiver and a handler loop. Ideally, we would like to be able to show the spec of both a sequential implementation and of a parallel, where the receiver is concurrently running alongside one or more handlers.
@@ -56,11 +220,11 @@ n |-> Running (Server reqs) <=> n |-> Running (Server reqs1) * Running (Server r
 ```
 
 ```
-    Request(args)
-     /----->
-( C )        ( S )
-      <-----/
-  Response(f(args))
+       Request(args)
+         /----->
+    ( C )        ( S )
+          <-----/
+   Response([sum args])
 
 process = ARPC "Process" clientStep serverReceive serverSend
   where
