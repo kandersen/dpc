@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, ScopedTypeVariables #-}
 module NetSim.Examples.DistributedLocking where
 
 import NetSim.Core
@@ -120,10 +120,9 @@ initNetwork = initializeNetwork nodes protlets
             , (2, [(0, LockIdle 0)])
             , (3, [(0, ResourceIdle 2 0)])
             ]
+    protlets :: [(NodeID, Protlet f State)]
     protlets = [ (0, acquire)
                , (0, modifyResource)
                , (0, verifyToken)
                , (0, release)
                ]
-
--- Implementation
