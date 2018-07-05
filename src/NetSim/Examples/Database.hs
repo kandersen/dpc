@@ -140,18 +140,19 @@ snapshotter db = do
     forM_ (_locks db) $ readerExit
     snapshotter db
 
+takeSnap :: MonadDiSeL m => DBState m -> m [Int]
+takeSnap db = do
+  forM_ (Map.elems . _locks $ db) $ readerEnter
+  vs <- Map.elems <$> forM (_cells $ db) readRef
+  forM_ (Map.elems . _locks $ db) $ readerExit
+  return vs
+
 snapshotter' :: MonadDiSeL m => Label -> DBState m -> m a
 snapshotter' label db = do
-    firstSnap <- takeSnap
+    firstSnap <- takeSnap db
     snapLoc <- allocRef firstSnap
     par [lookForChanges snapLoc, messenger snapLoc] undefined
   where
---    takeSnap :: MonadDiSeL m => m [Int]
-    takeSnap = do
-      forM_ (Map.elems . _locks $ db) $ readerEnter
-      vs <- Map.elems <$> forM (_cells $ db) readRef
-      forM_ (Map.elems . _locks $ db) $ readerExit
-      return vs
     lookForChanges loc = do
       oldSnap <- readRef loc
       go oldSnap $ Map.keys . _locks $ db
@@ -162,7 +163,7 @@ snapshotter' label db = do
           if v == s 
             then go ss ls
             else do
-              takeSnap >>= writeRef loc
+              takeSnap db >>= writeRef loc
               lookForChanges loc
 
     messenger loc = do

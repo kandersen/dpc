@@ -28,12 +28,15 @@ compute server f = RPC "compute" clientSend serverStep
 initNetwork :: Alternative f => Network f S
 initNetwork = initializeNetwork nodes protlets
   where
+    addLabel, mulLabel, server :: NodeID
     addLabel = 0
     mulLabel = 1
     server = 0
+    nodes :: [(NodeID, [(NodeID, S)])]
     nodes = [ (server, [(addLabel, Server), (mulLabel, Server)])
             , (1, [(addLabel, ClientInit [40, 2]), (mulLabel, ClientInit [5,8])])
             ]
+    protlets :: [(NodeID, Protlet f S)]
     protlets = [(addLabel, compute server sum),
                 (mulLabel, compute server product)]
 

@@ -114,6 +114,7 @@ verifyToken = RPC "Verify" clientStep serverStep
 initNetwork :: Alternative f => Network f State
 initNetwork = initializeNetwork nodes protlets
   where
+    nodes :: [(NodeID, [(NodeID, State)])]
     nodes = [ (0, [(0, ClientInit 2 3 42)])
             , (1, [(0, ClientInit 2 3 99)])
             , (2, [(0, LockIdle 0)])

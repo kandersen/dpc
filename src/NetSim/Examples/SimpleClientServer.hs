@@ -23,9 +23,11 @@ queryServer = RPC "Query" cstep sstep
 initNetwork :: Network f State
 initNetwork = initializeNetwork nodes [(0, queryServer)]
   where
+    client0, client1, server :: NodeID
     client0 = 0
     client1 = 2
     server = 1
+    nodes :: [(NodeID, [(NodeID, State)])]
     nodes = [
       (client0, [(0, ClientInit server)]),
       (server, [(0, Server 42)]),

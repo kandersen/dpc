@@ -18,7 +18,7 @@ import Data.Foldable
 import Control.Monad.Reader
 import Control.Concurrent.Chan
 import Control.Concurrent
-import Data.List (intercalate, sortBy)
+import Data.List (sortBy)
 import Data.Ord (comparing)
 
 {-

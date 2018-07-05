@@ -52,6 +52,7 @@ computeProtocol = ARPC "Compute" client serverRec serverSend
 initNetwork :: Alternative f => Network f PState
 initNetwork = initializeNetwork nodes protlets
   where
+    label :: NodeID
     label = 0
     nodes = [ (0, [(label, ServerBatch 3 [])])
             , (1, [(label, ClientInit 1 0 2 40)])
@@ -61,6 +62,7 @@ initNetwork = initializeNetwork nodes protlets
             , (5, [(label, ClientInit 5 0 7 7)])
             , (6, [(label, ClientInit 6 0 100 1000)])
             ]
+    protlets :: [(NodeID, Protlet f PState)]
     protlets = [(label, computeProtocol)]
 
 calculatorServer :: MonadDiSeL m => Label -> m a
@@ -85,4 +87,5 @@ calcConfiguration = Configuration {
   _confSoup = []
   }
   where 
+    label :: NodeID
     label = 0

@@ -97,12 +97,15 @@ decide label = Broadcast "Decide" coordinatorBroadcast participantReceive partic
 initNetwork :: Alternative f => Network f State
 initNetwork = initializeNetwork nodes protlets
   where
+    nodes :: [(NodeID, [(NodeID, State)])]
     nodes = [ (0, [(label, CoordinatorInit [1,2,3])])
             , (1, [(label, ParticipantInit)])
             , (2, [(label, ParticipantInit)])
             , (3, [(label, ParticipantInit)])
             ]
+    protlets :: Alternative f => [(NodeID, Protlet f State)]
     protlets = [(label, prepare label), (label, decide label)]
+    label :: NodeID
     label = 0
 
 initNetworkMetadata :: TPCMetaData
