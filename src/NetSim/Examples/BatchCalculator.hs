@@ -62,7 +62,7 @@ initNetwork = initializeNetwork nodes protlets
             , (5, [(label, ClientInit 5 0 7 7)])
             , (6, [(label, ClientInit 6 0 100 1000)])
             ]
-    protlets :: [(NodeID, Protlet f PState)]
+    protlets :: Alternative f => [(NodeID, Protlet f PState)]
     protlets = [(label, computeProtocol)]
 
 calculatorServer :: MonadDiSeL m => Label -> m a

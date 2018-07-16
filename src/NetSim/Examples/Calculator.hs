@@ -36,7 +36,7 @@ initNetwork = initializeNetwork nodes protlets
     nodes = [ (server, [(addLabel, Server), (mulLabel, Server)])
             , (1, [(addLabel, ClientInit [40, 2]), (mulLabel, ClientInit [5,8])])
             ]
-    protlets :: [(NodeID, Protlet f S)]
+    protlets :: Alternative f => [(NodeID, Protlet f S)]
     protlets = [(addLabel, compute server sum),
                 (mulLabel, compute server product)]
 
