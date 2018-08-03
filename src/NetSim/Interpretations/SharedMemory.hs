@@ -1,6 +1,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module NetSim.Interpretations.SharedMemory where
 import Control.Monad.Reader
 import Data.Map (Map)
@@ -11,14 +12,10 @@ import NetSim.Language
 --
 -- IO Implementation with real threads!
 --
-type Runner = ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) IO
+newtype Runner a = Runner { withContext :: ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) IO a }
+  deriving (Functor, Applicative, Monad, Transformer)
 
-instance MonadDiSeL Runner where
-  type Ref Runner = MVar
-  allocRef a = liftIO $ newMVar a
-  readRef v = liftIO $ takeMVar v
-  writeRef v a = liftIO $ putMVar v a
-  casRef v a' b = liftIO $ modifyMVar v (\a -> return (if a == a' then b else a, a == a'))
+instance MessagePassing Runner where
   send (label, tag, body, to) = do
     (nodeID, _, channels) <- ask
     lift $ writeChan (channels Map.! to) (label, tag, body, nodeID)
@@ -31,6 +28,15 @@ instance MonadDiSeL Runner where
         lift $ writeChan inbox pkt
         return Nothing
   this = (\(nodeID, _, _) -> nodeID) <$> ask
+
+instance SharedMemory Runner where
+  type Ref Runner = MVar
+  allocRef a = liftIO $ newMVar a
+  readRef v = liftIO $ takeMVar v
+  writeRef v a = liftIO $ putMVar v a
+  casRef v a' b = liftIO $ modifyMVar v (\a -> return (if a == a' then b else a, a == a'))
+
+instance Par Runner where
   par mas k = do
     env <- ask
     vars <- forkThreads env mas

@@ -1,25 +1,9 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 module NetSim.Language where
 
 import NetSim.Core
-import NetSim.Util
-import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Foldable
-import Control.Monad.Reader
-import Control.Concurrent.Chan
-import Control.Concurrent
-import Data.List (sortBy)
-import Data.Ord (comparing)
 
 {-
 Packet p = (l, t, p, s)
@@ -34,12 +18,16 @@ type Packet = (Label, String, [Int], NodeID)
 --
 -- Language primitives
 --
-class Monad m => MonadDiSeL m where
-  type Ref m :: (* -> *)
+class Monad m => MessagePassing m where
   send :: Packet -> m ()
   receive :: Label -> [String] -> m (Maybe Packet)
   this :: m NodeID
+
+class Monad m => Par m where
   par :: [m a] -> ([a] -> m c) -> m c
+  
+class Monad m => SharedMemory m where
+  type Ref m :: (* -> *)
   allocRef :: a -> m (Ref m a)
   readRef :: Ref m a -> m a
   writeRef :: Ref m a -> a -> m ()
@@ -47,21 +35,21 @@ class Monad m => MonadDiSeL m where
 --
 -- Compound operations
 --
-spinReceive :: MonadDiSeL m => Label -> [String] -> m Packet
+spinReceive :: MessagePassing m => Label -> [String] -> m Packet
 spinReceive label tags = do
     mmsg <- receive label tags
     case mmsg of
       Nothing -> spinReceive label tags
       Just msg -> return msg
 
-rpcCall :: MonadDiSeL m =>
+rpcCall :: MessagePassing m =>
   Label -> String -> [Int] -> NodeID -> m [Int]
 rpcCall label protlet body to = do
   send (label, protlet ++ "__Request", body, to)
   (_, _, resp, _) <- spinReceive label [protlet ++ "__Response"]
   return resp
 
-broadcastQuorom :: (MonadDiSeL m, Ord fraction, Fractional fraction) =>
+broadcastQuorom :: (MessagePassing m, Ord fraction, Fractional fraction) =>
   fraction -> Label -> String -> [Int] -> [NodeID] -> m [Packet]
 broadcastQuorom fraction label protlet body receivers = do
   traverse_ (\to -> send (label, protlet ++ "__Broadcast", body, to)) receivers
@@ -74,7 +62,7 @@ broadcastQuorom fraction label protlet body receivers = do
           resp <- spinReceive label [protlet ++ "__Response"]
           spinForResponses (resp:resps)
 
-broadcast :: (MonadDiSeL m) =>
+broadcast :: (MessagePassing m) =>
   Label -> String -> [Int] -> [NodeID] -> m [Packet]
 broadcast = broadcastQuorom (1 :: Double)
 

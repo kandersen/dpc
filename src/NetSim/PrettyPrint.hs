@@ -5,6 +5,7 @@ import NetSim.Core
 import NetSim.Language
 import Data.Map as Map
 import Data.List
+import NetSim.Interpretations.Pure
 
 ppMessage :: Message -> String
 ppMessage Message{..} = concat [

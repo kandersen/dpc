@@ -51,10 +51,12 @@ instance Applicative DiSeL where
 instance Monad DiSeL where
   (>>=) = Bind
 
-instance MonadDiSeL DiSeL where
+instance MessagePassing DiSeL where
   send (label, tag, body, receiver) = Send label tag body receiver (pure ())
   receive label tags = Receive label tags pure
   this = This pure
+
+instance Par DiSeL where
   par as = Par (zip [0..] as)
 
 -- Single-step evaluation. Takes a name for `this`, the

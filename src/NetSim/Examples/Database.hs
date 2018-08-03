@@ -4,6 +4,7 @@ module NetSim.Examples.Database where
 
 import NetSim.Language
 import NetSim.Core
+import NetSim.Interpretations.SharedMemory
 import Control.Monad.IO.Class
 import Control.Concurrent
 import Control.Monad
