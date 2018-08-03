@@ -89,6 +89,7 @@ initConf = Configuration {
     (serverID, polynomialServer addLabel mulLabel) ]
   }
   where
+    serverID, addLabel, mulLabel :: NodeID
     serverID = 0
     addLabel = 0
     mulLabel = 1

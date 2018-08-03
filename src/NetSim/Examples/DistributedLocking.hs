@@ -45,7 +45,8 @@ release = Notification "Release" client server
           _msgFrom = this,
           _msgBody = [token],
           _msgTag = "Release__Notification",
-          _msgTo = lock
+          _msgTo = lock,
+          _msgLabel = undefined
           }
 
     server :: Receive State
@@ -88,7 +89,8 @@ modifyResource = ARPC "Modify" clientStep serverReceive serverRespond
           _msgTag = "Modify__Response",
           _msgFrom = nodeID,
           _msgTo = to,
-          _msgBody = ans
+          _msgBody = ans,
+          _msgLabel = undefined
           }
 
 verifyToken :: Alternative f => Protlet f State

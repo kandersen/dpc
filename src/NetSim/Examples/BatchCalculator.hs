@@ -46,7 +46,8 @@ computeProtocol = ARPC "Compute" client serverRec serverSend
           _msgTo = to,
           _msgTag = "Compute__Response",
           _msgBody = body,
-          _msgFrom = nodeID
+          _msgFrom = nodeID,
+          _msgLabel = undefined
           }
 
 initNetwork :: Alternative f => Network f PState
@@ -54,6 +55,7 @@ initNetwork = initializeNetwork nodes protlets
   where
     label :: NodeID
     label = 0
+    nodes :: [(NodeID, [(NodeID, PState)])]
     nodes = [ (0, [(label, ServerBatch 3 [])])
             , (1, [(label, ClientInit 1 0 2 40)])
             , (2, [(label, ClientInit 2 0 1 10)])

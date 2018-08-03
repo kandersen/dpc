@@ -13,7 +13,16 @@ import NetSim.Language
 --
 -- IO Implementation with real threads!
 --
-type Runner = ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) IO
+newtype RunnerT m a = RunnerT { runRunnerT :: ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) m a }
+  deriving (Functor, 
+            Applicative, 
+            Monad, 
+            MonadTrans, 
+            MonadIO,
+            MonadReader (NodeID, Chan Packet, Map NodeID (Chan Packet))
+           )
+
+type Runner = RunnerT IO
 
 instance MessagePassing Runner where
   send (label, tag, body, to) = do
@@ -42,11 +51,11 @@ instance Par Runner where
     vars <- forkThreads env mas
     as <-  awaitThreads vars
     k as
-    where
+    where      
       forkThreads _ [] = return []
       forkThreads env (ma:mas') = do
         var <- liftIO newEmptyMVar
-        liftIO . void . forkIO $ (runReaderT ma env >>= putMVar var)
+        liftIO . void . forkIO $ (runReaderT (runRunnerT ma) env >>= putMVar var)
         (var:) <$> forkThreads env mas'
       awaitThreads [] = return []
       awaitThreads (v:vs) = do
@@ -64,9 +73,9 @@ runNetworkIO conf = do
   let mapping = Map.fromList [(nodeID, inbox) | (nodeID, inbox, _) <- envs]
   output <- newChan
   sequence_ . flip fmap network  $ \(nodeID, code) ->
-    forkIO . void $ runReaderT (code >>= epilogue output . (nodeID,)) (nodeID, mapping Map.! nodeID, mapping)
+    forkIO . void $ runReaderT (runRunnerT (code >>= epilogue output . (nodeID,))) (nodeID, mapping Map.! nodeID, mapping)
   getChanContents output
 
   where
     epilogue :: Chan a -> a -> Runner ()
-    epilogue output a = liftIO $ writeChan output a
+    epilogue output a = RunnerT $ liftIO $ writeChan output a

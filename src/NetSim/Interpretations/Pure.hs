@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module NetSim.Interpretations.Pure where
 import NetSim.Language
 import NetSim.Core
@@ -102,7 +103,7 @@ runPure initConf = go (cycle $ _confNodes initConf) initConf
     go     [] conf = [(Nothing, conf)]
     go (n:ns) conf = do
       let (mmsg, soup', node') = stepDiSeL n (_confSoup conf) (_confNodeStates conf Map.! n)
-      let schedule' = case node' of
+      let (schedule' :: [NodeID]) = case node' of
                         Pure _ -> filter (/= n) ns
                         _ -> ns
       let states' = Map.insert n node' (_confNodeStates conf)
