@@ -9,7 +9,7 @@ import qualified Data.Map as Map
 
 -- Round-Based Register
 
-readRBR :: MonadDiSeL m => Label -> [NodeID] -> Int -> m (Bool, Maybe Int)
+readRBR :: MessagePassing m => Label -> [NodeID] -> Int -> m (Bool, Maybe Int)
 readRBR lbl participants r = do
   forM_ participants $ \pt -> send (lbl, "Read__Request", [r], pt)
   spinForResponses 0 Nothing []
@@ -41,7 +41,7 @@ readRBR lbl participants r = do
             _ -> spinForResponses maxKW maxV q
     
 
-writeRBR :: MonadDiSeL m => Label -> [NodeID] -> Int -> Int -> m Bool
+writeRBR :: MessagePassing m => Label -> [NodeID] -> Int -> Int -> m Bool
 writeRBR lbl participants r vW = do
   forM_ participants $ \pt -> send (lbl, "Write__Request", [r, vW], pt)
   spinForResponses []
@@ -59,7 +59,7 @@ writeRBR lbl participants r vW = do
         [0, k] | k == r -> return False
         _ -> spinForResponses q
 
-acceptor :: MonadDiSeL m => Label -> m a
+acceptor :: MessagePassing m => Label -> m a
 acceptor lbl = go Nothing 0 0
   where
     go mv r w = do
@@ -86,7 +86,7 @@ acceptor lbl = go Nothing 0 0
                   go (Just vW) k k
         _ -> error $ "Illformed request " ++ tag ++ ": " ++ show body
 
-proposeRC :: MonadDiSeL m => 
+proposeRC :: MessagePassing m => 
   Label -> [NodeID] -> Int -> Int -> m (Bool, Maybe Int)
 proposeRC lbl participants r v0 = do
   (resR, mv) <- readRBR lbl participants r
@@ -99,7 +99,7 @@ proposeRC lbl participants r v0 = do
         else return (False, Nothing)
     else return (False, Nothing)
 
-proposeP :: MonadDiSeL m => Label -> [NodeID] -> Int -> m Int
+proposeP :: MessagePassing m => Label -> [NodeID] -> Int -> m Int
 proposeP lbl participants v0 = do
     k <- this
     loopTillSucceed k
@@ -111,7 +111,7 @@ proposeP lbl participants v0 = do
         else loopTillSucceed (k + length participants) 
 
 
-initConf :: MonadDiSeL m => Configuration m Int
+initConf :: MessagePassing m => Configuration m Int
 initConf = Configuration {
     _confNodes = [0..2],
     _confSoup = [],

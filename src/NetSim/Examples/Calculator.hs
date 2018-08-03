@@ -43,7 +43,7 @@ initNetwork = initializeNetwork nodes protlets
 
 --- Implementation
 
-polynomialServer :: (MonadDiSeL m) => Label -> Label -> m a
+polynomialServer :: (MessagePassing m, Par m) => Label -> Label -> m a
 polynomialServer addInstance mulInstance = par [loop mulInstance product, loop addInstance sum] undefined
   where    
     loop label f = do
@@ -64,7 +64,7 @@ instance Num Arith where
   abs = error "abs not implemented"
   signum = error "signum not implemented"
 
-polynomialClient :: (MonadDiSeL m) => Label -> Label -> NodeID -> Arith -> m Int
+polynomialClient :: (MessagePassing m) => Label -> Label -> NodeID -> Arith -> m Int
 polynomialClient addLabel mulLabel server = go
   where
     go (ConstInt n) = pure n
@@ -79,7 +79,7 @@ polynomialClient addLabel mulLabel server = go
       [ans] <- rpcCall mulLabel "compute" [l', r'] server 
       return ans
 
-initConf :: MonadDiSeL m => Configuration m Int
+initConf :: (Par m, MessagePassing m) => Configuration m Int
 initConf = Configuration {
   _confNodes = [serverID,1,2],
   _confSoup = [],

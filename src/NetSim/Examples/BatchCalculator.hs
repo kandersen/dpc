@@ -65,18 +65,18 @@ initNetwork = initializeNetwork nodes protlets
     protlets :: Alternative f => [(NodeID, Protlet f PState)]
     protlets = [(label, computeProtocol)]
 
-calculatorServer :: MonadDiSeL m => Label -> m a
+calculatorServer :: MessagePassing m => Label -> m a
 calculatorServer label = do
   (_, _, [x, y], client) <- spinReceive label ["Compute__Request"]
   send (label, "Compute__Response", [x + y], client)
   calculatorServer label
 
-calculatorClient :: MonadDiSeL m => Label -> Int -> Int -> NodeID -> m Int
+calculatorClient :: MessagePassing m => Label -> Int -> Int -> NodeID -> m Int
 calculatorClient label a b server = do
   [x] <- rpcCall label "Compute" [a, b] server
   return x
 
-calcConfiguration :: MonadDiSeL m => Configuration m Int
+calcConfiguration :: MessagePassing m => Configuration m Int
 calcConfiguration = Configuration {
   _confNodes = [0, 1, 2],
   _confNodeStates = Map.fromList [

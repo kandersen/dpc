@@ -9,6 +9,7 @@ dependencies:
   - microlens
   - microlens-th
   - mtl
+  - socket
 
 library:
   exposed-modules: NetSim.Core

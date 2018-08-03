@@ -1,7 +1,6 @@
-{-# LANGUGAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module NetSim.Interpretations.WebSockets where
 
-import NetSim.Language
 import NetSim.Core
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -33,8 +32,8 @@ defaultMain program = do
   -- open my own socket
   -- open a socket to all peers
   -- -- get peer addresses from file
-  nd <- read <$> readFile "network.desc"
-  print (nd :: NetworkDescription)
+  (nd :: NetworkDescription) <- read <$> readFile "network.desc"
+  print nd
   -- -- open connection to each and store in 
   -- build network context
   let netctxt = NetCtxt 0 Map.empty

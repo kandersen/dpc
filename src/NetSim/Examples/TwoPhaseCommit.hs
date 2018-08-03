@@ -275,7 +275,7 @@ phaseTwo = phaseTwoCommit <||> phaseTwoAbort
 
 -- Implementation
 
-tpcCoordinator :: MonadDiSeL m => Label -> Int -> [NodeID] -> m a
+tpcCoordinator :: MessagePassing m => Label -> Int -> [NodeID] -> m a
 tpcCoordinator label n participants = do
   resps <- broadcast label "Prepare" [] participants
   _ <- if any isReject resps
@@ -286,7 +286,7 @@ tpcCoordinator label n participants = do
     isReject (_, _, [0], _) = True
     isReject             _  = False
 
-tpcClient :: MonadDiSeL m => Label -> Int -> Int -> m a
+tpcClient :: MessagePassing m => Label -> Int -> Int -> m a
 tpcClient label n b = do
   (_, tag, body, server) <- spinReceive label ["Prepare__Broadcast", "Decide__Broadcast"]
   case (tag, body) of

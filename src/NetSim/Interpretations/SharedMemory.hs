@@ -3,6 +3,7 @@
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module NetSim.Interpretations.SharedMemory where
+
 import Control.Monad.Reader
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -12,8 +13,7 @@ import NetSim.Language
 --
 -- IO Implementation with real threads!
 --
-newtype Runner a = Runner { withContext :: ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) IO a }
-  deriving (Functor, Applicative, Monad, Transformer)
+type Runner = ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) IO
 
 instance MessagePassing Runner where
   send (label, tag, body, to) = do
