@@ -16,9 +16,9 @@ computeProtocol = ARPC "Compute" client serverRec serverSend
   where
     client state = case state of
       ClientInit _ server a b ->
-        pure (server, [a, b], clientRecieve)
+        pure (server, [a, b], clientReceive)
       _ -> empty
-    clientRecieve [n] = ClientDone n
+    clientReceive [n] = ClientDone n
 
     serverRec :: Receive PState
     serverRec Message{..} state = case state of
