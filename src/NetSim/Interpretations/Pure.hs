@@ -100,10 +100,11 @@ stepDiSeL nodeID soup (Bind ma fb) =
 runPure :: Configuration DiSeL a -> [(Maybe Message, Configuration DiSeL a)]
 runPure initConf = go (cycle $ _confNodes initConf) initConf
   where
+    go :: [NodeID] -> Configuration DiSeL a -> [(Maybe Message, Configuration DiSeL a)]
     go     [] conf = [(Nothing, conf)]
     go (n:ns) conf = do
       let (mmsg, soup', node') = stepDiSeL n (_confSoup conf) (_confNodeStates conf Map.! n)
-      let (schedule' :: [NodeID]) = case node' of
+      let (schedule') = case node' of
                         Pure _ -> filter (/= n) ns
                         _ -> ns
       let states' = Map.insert n node' (_confNodeStates conf)
