@@ -8,8 +8,10 @@ dependencies:
   - vty
   - microlens
   - microlens-th
+  - microlens-mtl
   - mtl
   - socket
+  - bytestring
 
 library:
   exposed-modules: NetSim.Core

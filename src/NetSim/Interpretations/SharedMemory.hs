@@ -13,7 +13,9 @@ import NetSim.Language
 --
 -- IO Implementation with real threads!
 --
-newtype RunnerT m a = RunnerT { runRunnerT :: ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) m a }
+newtype RunnerT m a = RunnerT { 
+  runRunnerT :: ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) m a 
+  }
   deriving (Functor, 
             Applicative, 
             Monad, 
