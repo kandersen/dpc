@@ -12,6 +12,7 @@ dependencies:
   - mtl
   - socket
   - bytestring
+  - cereal
 
 library:
   exposed-modules: NetSim.Core

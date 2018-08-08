@@ -26,6 +26,7 @@ import Lens.Micro.Mtl
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import Data.Serialize
 
 type DSocket = Socket Inet Stream TCP
 
@@ -38,7 +39,7 @@ data NetworkContext = NetworkContext {
 makeLenses ''NetworkContext
 
 newtype SocketRunnerT m a = SocketRunnerT {
-    runSocketRunnerT :: (ReaderT NetworkContext m a) }
+    runSocketRunnerT :: ReaderT NetworkContext m a }
     deriving (
      Functor, 
      Applicative, 
@@ -48,18 +49,20 @@ newtype SocketRunnerT m a = SocketRunnerT {
      MonadReader NetworkContext
     )
 
-instance Monad m => MessagePassing (SocketRunnerT m) where
+instance (MonadIO m, Monad m) => MessagePassing (SocketRunnerT m) where
   this = _this <$> ask
-  send = undefined
-  receive = undefined
+  send (lbl,tag,body,to) = do
+    let p = encode (lbl, tag, body)
+    let n = BS.length p
+    peerSocket <- (!to) <$> view addressBook
+    sent <- liftIO $ Socket.send peerSocket p mempty
+    when (n /= sent) $
+      liftIO . putStrLn $ "Whoops, sent " ++ show sent ++ " but expected " ++ show n ++ "."
+
+  receive lbl tags = do
+    undefined
 
 type SocketRunner = SocketRunnerT IO
-
-packNodeID :: NodeID -> ByteString
-packNodeID = BS.singleton . toEnum
-
-unpackNodeID :: ByteString -> NodeID
-unpackNodeID = fromIntegral . BS.head
 
 run :: NetworkContext -> SocketRunner a -> IO a
 run ctxt p = runReaderT (runSocketRunnerT p) ctxt
@@ -84,7 +87,7 @@ establishMesh thisID nd = do
         else do
           lift . print $ "Connecting to " ++ show nid
           peerSocket <-lift $ retryConnect (nd ! nid)
-          sentBytes <- lift $ Socket.send peerSocket (packNodeID $ thisID) mempty
+          sentBytes <- lift $ Socket.send peerSocket (encode thisID) mempty
           lift . print $ "Sent " ++ show sentBytes ++ " to peer!"
           addressBook %= Map.insert nid peerSocket
       go mySocket nids
@@ -99,7 +102,7 @@ establishMesh thisID nd = do
     acceptConnectionForPeers mySocket ps = do
       (peerSocket, peerAddr) <- lift $ accept mySocket
       lift $ setSocketOption peerSocket (KeepAlive True)
-      peerID <- lift $ unpackNodeID <$> Socket.receive peerSocket 1 mempty
+      peerID <- lift $ either error id . decode <$> Socket.receive peerSocket 8 mempty
       lift $ print ("Accepted connection from " ++ show peerID ++ " @ " ++ show peerAddr)
       addressBook %= Map.insert peerID peerSocket
       acceptConnectionForPeers mySocket (delete peerID ps)
