@@ -283,15 +283,14 @@ tpcCoordinator label n participants = do
     else broadcast label "Decide" [1] participants
   tpcCoordinator label (n + 1) participants
   where 
-    isReject (_, _, [0], _) = True
-    isReject             _  = False
+    isReject Message{..} = _msgBody == [0]
 
 tpcClient :: MessagePassing m => Label -> Int -> Int -> m a
 tpcClient label n b = do
-  (_, tag, body, server) <- spinReceive label ["Prepare__Broadcast", "Decide__Broadcast"]
+  Message server tag body _ _ <- spinReceive label ["Prepare__Broadcast", "Decide__Broadcast"]
   case (tag, body) of
       ("Prepare__Broadcast", []) ->
         if n `mod` b == 0
-        then send (label, "Prepare__Response", [1], server)
-        else send (label, "Prepare__Response", [0], server)
+        then send server label "Prepare__Response" [1]
+        else send server label "Prepare__Response" [0]
   tpcClient label (n + 1) b

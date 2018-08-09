@@ -13,6 +13,7 @@ dependencies:
   - socket
   - bytestring
   - cereal
+  - stm
 
 library:
   exposed-modules: NetSim.Core

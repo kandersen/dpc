@@ -11,7 +11,7 @@ import qualified Data.Map as Map
 
 readRBR :: MessagePassing m => Label -> [NodeID] -> Int -> m (Bool, Maybe Int)
 readRBR lbl participants r = do
-  forM_ participants $ \pt -> send (lbl, "Read__Request", [r], pt)
+  forM_ participants $ \pt -> send pt lbl "Read__Request" [r]
   spinForResponses 0 Nothing []
   where
     n :: Double
@@ -27,7 +27,7 @@ readRBR lbl participants r = do
       if isDone q
         then return (True, maxV)
         else do
-          (_, _, body, sender) <- spinReceive lbl ["Read__Response"]
+          Message sender _ body _ _ <- spinReceive lbl ["Read__Response"]
           case body of
             [1, k, 0, kW] | k == r ->
               if kW >= maxKW
@@ -43,14 +43,14 @@ readRBR lbl participants r = do
 
 writeRBR :: MessagePassing m => Label -> [NodeID] -> Int -> Int -> m Bool
 writeRBR lbl participants r vW = do
-  forM_ participants $ \pt -> send (lbl, "Write__Request", [r, vW], pt)
+  forM_ participants $ \pt -> send pt lbl "Write__Request" [r, vW]
   spinForResponses []
   where
     n :: Double
     n = fromIntegral $ length participants 
 
     spinForResponses q = do
-      (_, _, body, sender) <- spinReceive lbl ["Write__Response"]
+      Message sender _ body _ _ <- spinReceive lbl ["Write__Response"]
       case body of
         [1, k] | k == r -> 
             if length q == ceiling ((n + 1.0) / 2.0)
@@ -63,26 +63,26 @@ acceptor :: MessagePassing m => Label -> m a
 acceptor lbl = go Nothing 0 0
   where
     go mv r w = do
-      (_, tag, body, sender) <- spinReceive lbl ["Read__Request", "Write__Request"]
+      Message sender tag body _ _ <- spinReceive lbl ["Read__Request", "Write__Request"]
       case (tag, body) of
         ("Read__Request", [k]) -> 
             if k < r
               then do 
-                send (lbl, "Read__Response", [0, k], sender)
+                send sender lbl "Read__Response" [0, k]
                 go mv r w
               else do
                 let msg = case mv of
                             Nothing -> [1, k, 0, w]
                             Just v -> [1, k, 1, v, w]
-                send (lbl, "Read__Response", msg, sender)
+                send sender lbl "Read__Response" msg 
                 go mv k w
         ("Write__Request", [k, vW]) ->
             if k < r
                 then do
-                  send (lbl, "Write__Response", [0, k], sender)
+                  send sender lbl "Write__Response" [0, k]
                   go mv r w
                 else do
-                  send (lbl, "Write__Response", [1, k], sender)
+                  send sender lbl "Write__Response" [1, k]
                   go (Just vW) k k
         _ -> error $ "Illformed request " ++ tag ++ ": " ++ show body
 

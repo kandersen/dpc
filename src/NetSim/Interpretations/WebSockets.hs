@@ -1,6 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RecordWildCards #-}
 module NetSim.Interpretations.WebSockets where
 
 import Data.Map (Map, (!))
@@ -18,6 +19,9 @@ import System.Socket.Family.Inet
 import System.Socket.Type.Stream
 import System.Socket.Protocol.TCP
 
+import Control.Concurrent.STM.TChan
+import Control.Concurrent.STM
+
 import NetSim.Core
 import NetSim.Language
 
@@ -34,7 +38,8 @@ type NetworkDescription = Map NodeID (SocketAddress Inet)
 
 data NetworkContext = NetworkContext {
     _this :: NodeID,
-    _addressBook :: Map NodeID DSocket
+    _addressBook :: Map NodeID DSocket,
+    _inbox :: TChan Message
 }
 makeLenses ''NetworkContext
 
@@ -51,7 +56,7 @@ newtype SocketRunnerT m a = SocketRunnerT {
 
 instance (MonadIO m, Monad m) => MessagePassing (SocketRunnerT m) where
   this = _this <$> ask
-  send (lbl,tag,body,to) = do
+  send to lbl tag body = do
     let p = encode (lbl, tag, body)
     let n = BS.length p
     peerSocket <- (!to) <$> view addressBook
@@ -60,12 +65,33 @@ instance (MonadIO m, Monad m) => MessagePassing (SocketRunnerT m) where
       liftIO . putStrLn $ "Whoops, sent " ++ show sent ++ " but expected " ++ show n ++ "."
 
   receive lbl tags = do
-    undefined
+    inboxChan <- view inbox
+    mmsg <- liftIO . atomically $ tryReadTChan inboxChan
+    case mmsg of
+      Just p@Message{..} | _msgLabel == lbl && _msgTag `elem` tags -> return mmsg
+                         | otherwise -> do 
+                             liftIO . atomically $ writeTChan inboxChan p 
+                             return Nothing
+      Nothing -> return Nothing
 
 type SocketRunner = SocketRunnerT IO
 
 run :: NetworkContext -> SocketRunner a -> IO a
 run ctxt p = runReaderT (runSocketRunnerT p) ctxt
+
+mailman :: SocketRunner ()
+mailman = do
+  p <- receivePacket
+  inb <- view inbox
+  liftIO . atomically . writeTChan inb $ p
+  mailman
+  where
+    receivePacket :: SocketRunner Message
+    receivePacket = do
+      undefined
+      
+      
+
 
 establishMesh :: NodeID -> NetworkDescription -> IO NetworkContext
 establishMesh thisID nd = do
@@ -75,7 +101,10 @@ establishMesh thisID nd = do
   bind mySocket (nd ! thisID)
   listen mySocket (Map.size nd - 1)
   print $ "Listening on " ++ show (nd ! thisID) ++ "..."
-  execStateT (go mySocket $ Map.keys nd) (NetworkContext thisID Map.empty)
+  emptyInbox <- newTChanIO
+  res <- execStateT (go mySocket $ Map.keys nd) (NetworkContext thisID Map.empty emptyInbox)
+  close mySocket
+  return res
   where
     go :: DSocket -> [NodeID] -> StateT NetworkContext IO ()
     go        _ [] = return ()

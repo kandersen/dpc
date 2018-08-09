@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RecordWildCards #-}
 module NetSim.Interpretations.SharedMemory where
 
 import Control.Monad.Reader
@@ -14,29 +15,29 @@ import NetSim.Language
 -- IO Implementation with real threads!
 --
 newtype RunnerT m a = RunnerT { 
-  runRunnerT :: ReaderT (NodeID, Chan Packet, Map NodeID (Chan Packet)) m a 
+  runRunnerT :: ReaderT (NodeID, Chan Message, Map NodeID (Chan Message)) m a 
   }
   deriving (Functor, 
             Applicative, 
             Monad, 
             MonadTrans, 
             MonadIO,
-            MonadReader (NodeID, Chan Packet, Map NodeID (Chan Packet))
+            MonadReader (NodeID, Chan Message, Map NodeID (Chan Message))
            )
 
 type Runner = RunnerT IO
 
 instance MessagePassing Runner where
-  send (label, tag, body, to) = do
+  send to label tag body = do
     (nodeID, _, channels) <- ask
-    lift $ writeChan (channels Map.! to) (label, tag, body, nodeID)
+    lift $ writeChan (channels Map.! to) (Message nodeID tag body to label)
   receive label tags = do
     (_, inbox, _) <- ask
-    pkt@(label', tag, _, _) <- lift $ readChan inbox
-    if tag `elem` tags && label' == label
-      then return $ Just pkt
+    msg@Message{..} <- lift $ readChan inbox
+    if _msgTag `elem` tags && _msgLabel == label
+      then return $ Just msg
       else do
-        lift $ writeChan inbox pkt
+        lift $ writeChan inbox msg
         return Nothing
   this = (\(nodeID, _, _) -> nodeID) <$> ask
 

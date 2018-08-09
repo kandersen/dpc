@@ -19,15 +19,15 @@ import Data.Ord (comparing)
 -- as can be seen in the small-step operational semantics implemented below.
 data DiSeL a = Pure a
              | forall b. Bind (DiSeL b) (b -> DiSeL a)
-             | Send Label String [Int] NodeID (DiSeL a)
-             | Receive Label [String] (Maybe Packet -> DiSeL a)
+             | Send NodeID Label String [Int] (DiSeL a)
+             | Receive Label [String] (Maybe Message -> DiSeL a)
              | This (NodeID -> DiSeL a)
              | forall b. Par [(Int, DiSeL b)] ([b] -> DiSeL a)
 
 instance Show a => Show (DiSeL a) where
   show (Pure a) = "Pure " ++ show a
   show (Bind _ _) = "Bind ma <Continuation>"
-  show (Send label tag body nodeid k) = concat ["Send[", show label, ", ", tag, "] ", show body, show nodeid, "(", show k, ")"]
+  show (Send nodeid label tag body k) = concat ["Send[", show label, ", ", tag, "] ", show body, show nodeid, "(", show k, ")"]
   show (Receive label tags _) = concat ["Receive[", show label, ", {", show tags, "}] <Continuation>"]
   show (This _) = "This <Continuation>"
   show (Par _ _) = "Par Schedule cont"
@@ -53,7 +53,7 @@ instance Monad DiSeL where
   (>>=) = Bind
 
 instance MessagePassing DiSeL where
-  send (label, tag, body, receiver) = Send label tag body receiver (pure ())
+  send to label tag body = Send to label tag body (pure ())
   receive label tags = Receive label tags pure
   this = This pure
 
@@ -67,12 +67,12 @@ instance Par DiSeL where
 stepDiSeL :: NodeID -> [Message] -> DiSeL a -> (Maybe Message, [Message], DiSeL a)
 stepDiSeL    _ soup (Pure a) = 
   (Nothing, soup, Pure a)
-stepDiSeL nodeID soup (Send label tag body to k) =
+stepDiSeL nodeID soup (Send to label tag body k) =
   (Just $ Message nodeID tag body to label, soup, k)
 stepDiSeL nodeID soup (Receive label tags k) = 
   case oneOfP isMessage soup of
     Nothing -> (Nothing, soup, k Nothing)
-    Just (Message{..}, soup') -> (Nothing, soup', k $ Just (_msgLabel, _msgTag, _msgBody, _msgFrom))
+    Just (msg, soup') -> (Nothing, soup', k $ Just msg)
   where
     isMessage Message{..} = _msgTag `elem` tags && _msgTo == nodeID && _msgLabel == label
 stepDiSeL nodeID soup (This k) =

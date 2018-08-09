@@ -30,6 +30,7 @@ clientRead = RPC "Read" clientStep serverStep
     clientReceive serverID [_] = ClientIdle serverID
     serverStep [] (Server n) = Just ([n], Server n)
 
+  
 clientWrite :: Protlet f S
 clientWrite = RPC "Write" clientStep serverStep
   where
@@ -117,14 +118,14 @@ dbServer :: (Par m, SharedMemory m, MessagePassing m) => DBState m -> m a
 dbServer db = par (oneCell <$> (Map.keys . _cells) db ) undefined
   where
     oneCell label = do
-      (_, tag, msg, client) <- spinReceive label ["Read__Request", "Write__Request"]
+      Message client tag msg _ _ <- spinReceive label ["Read__Request", "Write__Request"]
       case (tag, msg) of
         ("Read__Request", []) -> do                      
             val <- readDB db label
-            send (label, "Read__Response", [val], client)
+            send client label "Read__Response" [val]
         ("Write__Request", [v]) -> do
             writeDB db label v
-            send (label, "Write__Response", [1], client)
+            send client label "Write__Response" [1]
       oneCell label
 
 seconds :: Int -> Int
@@ -166,9 +167,9 @@ snapshotter' label db = do
               lookForChanges loc
 
     messenger loc = do
-      (_, _, _, client) <- spinReceive label ["Snap__Request"]
+      Message client _ _ _ _ <- spinReceive label ["Snap__Request"]
       ans <- readRef loc
-      send (label, "Snap__Response", ans, client)
+      send client label "Snap__Response" ans
       messenger loc
 
 compositeServer :: (MessagePassing m, Par m, SharedMemory m) => [Label] -> Label -> m a 

@@ -69,8 +69,8 @@ initNetwork = initializeNetwork nodes protlets
 
 calculatorServer :: MessagePassing m => Label -> m a
 calculatorServer label = do
-  (_, _, [x, y], client) <- spinReceive label ["Compute__Request"]
-  send (label, "Compute__Response", [x + y], client)
+  Message client _ [x, y] _ _ <- spinReceive label ["Compute__Request"]
+  send client label "Compute__Response" [x + y]
   calculatorServer label
 
 calculatorClient :: MessagePassing m => Label -> Int -> Int -> NodeID -> m Int

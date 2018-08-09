@@ -44,7 +44,7 @@ ppConf Configuration{..} = unlines $ ("Soup: " ++ show _confSoup) :
 ppDiSeL :: DiSeL a -> String
 ppDiSeL (Pure _) = "Pure <val>"
 ppDiSeL (Bind ma _) = concat ["Bind(", ppDiSeL ma, ", <Cont>)"]
-ppDiSeL (Send label tag body to k) = concat ["Send[", show label, ", ", tag, "](", show body, ", ", show to, ", ", ppDiSeL k]
+ppDiSeL (Send to label tag body k) = concat ["Send[", show label, ", ", tag, "](", show body, ", ", show to, ", ", ppDiSeL k]
 ppDiSeL (Receive label tags _) = concat ["Receive[", show label, ", {", show tags, "}] <Cont>)"]
 ppDiSeL (This _) = "This <Cont>"
 ppDiSeL (Par mas _) = "Par [" ++ intercalate "," (ppDiSeL . snd <$> mas) ++ "]"

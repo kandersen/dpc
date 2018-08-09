@@ -1,26 +1,17 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE RecordWildCards #-}
 module NetSim.Language where
 
 import NetSim.Core
 import Data.Map (Map)
 import Data.Foldable
 
-{-
-Packet p = (l, t, p, s)
-  where
-    l = protocol instance label
-    t = tag
-    p = payload
-    s = sender
--}    
-type Packet = (Label, String, [Int], NodeID)
-
 --
 -- Language primitives
 --
 class Monad m => MessagePassing m where
-  send :: Packet -> m ()
-  receive :: Label -> [String] -> m (Maybe Packet)
+  send :: NodeID -> Label -> String -> [Int] -> m ()
+  receive :: Label -> [String] -> m (Maybe Message)
   this :: m NodeID
 
 class Monad m => Par m where
@@ -35,7 +26,7 @@ class Monad m => SharedMemory m where
 --
 -- Compound operations
 --
-spinReceive :: MessagePassing m => Label -> [String] -> m Packet
+spinReceive :: MessagePassing m => Label -> [String] -> m Message
 spinReceive label tags = do
     mmsg <- receive label tags
     case mmsg of
@@ -45,14 +36,14 @@ spinReceive label tags = do
 rpcCall :: MessagePassing m =>
   Label -> String -> [Int] -> NodeID -> m [Int]
 rpcCall label protlet body to = do
-  send (label, protlet ++ "__Request", body, to)
-  (_, _, resp, _) <- spinReceive label [protlet ++ "__Response"]
-  return resp
+  send to label (protlet ++ "__Request") body
+  Message{..} <- spinReceive label [protlet ++ "__Response"]
+  return _msgBody
 
 broadcastQuorom :: (MessagePassing m, Ord fraction, Fractional fraction) =>
-  fraction -> Label -> String -> [Int] -> [NodeID] -> m [Packet]
+  fraction -> Label -> String -> [Int] -> [NodeID] -> m [Message]
 broadcastQuorom fraction label protlet body receivers = do
-  traverse_ (\to -> send (label, protlet ++ "__Broadcast", body, to)) receivers
+  traverse_ (\to -> send to label (protlet ++ "__Broadcast") body) receivers
   spinForResponses []
   where    
     spinForResponses resps 
@@ -63,10 +54,10 @@ broadcastQuorom fraction label protlet body receivers = do
           spinForResponses (resp:resps)
 
 broadcast :: (MessagePassing m) =>
-  Label -> String -> [Int] -> [NodeID] -> m [Packet]
+  Label -> String -> [Int] -> [NodeID] -> m [Message]
 broadcast = broadcastQuorom (1 :: Double)
 
---
+---
 -- Network description
 --
 data Configuration m a = Configuration {
