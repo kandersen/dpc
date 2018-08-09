@@ -21,6 +21,7 @@ import System.Socket.Protocol.TCP
 
 import Control.Concurrent.STM.TChan
 import Control.Concurrent.STM
+import Control.Concurrent
 
 import NetSim.Core
 import NetSim.Language
@@ -57,7 +58,8 @@ newtype SocketRunnerT m a = SocketRunnerT {
 instance (MonadIO m, Monad m) => MessagePassing (SocketRunnerT m) where
   this = _this <$> ask
   send to lbl tag body = do
-    let p = encode (lbl, tag, body)
+    thisID <- NetSim.Language.this
+    let p = encode $ Message thisID tag body to lbl
     let n = BS.length p
     peerSocket <- (!to) <$> view addressBook
     sent <- liftIO $ Socket.send peerSocket p mempty
@@ -68,10 +70,10 @@ instance (MonadIO m, Monad m) => MessagePassing (SocketRunnerT m) where
     inboxChan <- view inbox
     mmsg <- liftIO . atomically $ tryReadTChan inboxChan
     case mmsg of
-      Just p@Message{..} | _msgLabel == lbl && _msgTag `elem` tags -> return mmsg
-                         | otherwise -> do 
-                             liftIO . atomically $ writeTChan inboxChan p 
-                             return Nothing
+      Just msg@Message{..} | _msgLabel == lbl && _msgTag `elem` tags -> return mmsg
+                           | otherwise -> do 
+                               liftIO . atomically $ writeTChan inboxChan msg
+                               return Nothing
       Nothing -> return Nothing
 
 type SocketRunner = SocketRunnerT IO
@@ -81,17 +83,21 @@ run ctxt p = runReaderT (runSocketRunnerT p) ctxt
 
 mailman :: SocketRunner ()
 mailman = do
-  p <- receivePacket
+  sockets <- view addressBook
+  p <- findMessageAmongstSockets $ Map.elems sockets
   inb <- view inbox
   liftIO . atomically . writeTChan inb $ p
   mailman
   where
-    receivePacket :: SocketRunner Message
-    receivePacket = do
-      undefined
-      
-      
-
+    findMessageAmongstSockets :: [DSocket] -> SocketRunner Message
+    findMessageAmongstSockets sockets = go sockets
+      where
+        go []     = findMessageAmongstSockets sockets
+        go (s:ss) = do
+          mmsg :: Either String Message <- liftIO $ decode <$> Socket.receive s 1024 mempty
+          case mmsg of
+            Right m -> return m
+            Left _ -> go ss
 
 establishMesh :: NodeID -> NetworkDescription -> IO NetworkContext
 establishMesh thisID nd = do
@@ -153,6 +159,17 @@ defaultMain thisID program = do
   (nd :: NetworkDescription) <- parseNetworkDescription =<< readFile "network.desc"
   print nd
   -- create mesh network of socket connections
-  bracket (establishMesh thisID nd) releaseNetworkContext $ \netctxt ->
+  bracket (establishMesh thisID nd) releaseNetworkContext $ \netctxt -> do
+    mailmanThread <- forkIO $ run netctxt mailman
     void $ run netctxt program
-  
+    killThread mailmanThread
+
+
+echoBot :: SocketRunner ()
+echoBot = forever $ do
+  msg <- spinReceive 0 [""]
+  liftIO $ print msg
+
+spamBot :: NodeID -> Int -> SocketRunner ()
+spamBot to body = forever $ do
+  NetSim.Language.send to 0 "" [body]

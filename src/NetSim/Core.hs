@@ -1,6 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 module NetSim.Core (
   module NetSim.Core,
   module Control.Applicative
@@ -11,6 +13,9 @@ import qualified Data.Map as Map
 import Data.Map (Map, (!))
 import Control.Applicative
 import Lens.Micro
+
+import GHC.Generics
+import Data.Serialize
 
 --
 -- Protocol Description Datatypes
@@ -26,7 +31,7 @@ data Message = Message {
   _msgTo   :: NodeID,
   _msgLabel :: Label
   }
-  deriving Show
+  deriving (Show, Generic, Serialize)
 
 data NodeState s = Running s
                  | BlockingOn String [NodeID] ([[Int]] -> s)
