@@ -31,6 +31,7 @@ data State = CoordinatorInit [NodeID]
 prepare :: Alternative f => Label -> Protlet f State
 prepare label = Broadcast "Prepare" coordinatorBroadcast participantReceive participantSend
   where
+    coordinatorBroadcast :: Broadcast State
     coordinatorBroadcast = \case
       CoordinatorInit participants ->
         pure (zip participants (repeat []), receiveResponses participants)
@@ -62,6 +63,7 @@ prepare label = Broadcast "Prepare" coordinatorBroadcast participantReceive part
 decide :: Label -> Alternative f => Protlet f State
 decide label = Broadcast "Decide" coordinatorBroadcast participantReceive participantRespond
   where
+    coordinatorBroadcast :: Broadcast State
     coordinatorBroadcast = \case
       CoordinatorAbort participants ->
         pure (zip participants (repeat [0]), receiveResponses participants)

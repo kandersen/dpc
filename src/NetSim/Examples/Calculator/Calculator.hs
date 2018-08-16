@@ -1,5 +1,6 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE MultiWayIf          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module NetSim.Examples.Calculator.Calculator where
 
 import           NetSim.Core
@@ -47,6 +48,7 @@ initNetwork = initializeNetwork nodes protlets
 polynomialServer :: (MessagePassing m) => Label -> Label -> m a
 polynomialServer addInstance mulInstance = loop
   where
+    loop :: (MessagePassing m) => m a
     loop = do
       Message client _ args _ lbl <- spinReceive [addInstance, mulInstance] ["compute__Request"]
       let response = if | lbl == addInstance -> sum args

@@ -14,8 +14,8 @@ import qualified Data.Map            as Map
 import           Lens.Micro
 import           NetSim.Util
 
-import           Data.Serialize
-import           GHC.Generics
+import           Data.Serialize      (Serialize)
+import           GHC.Generics        (Generic)
 
 --
 -- Protocol Description Datatypes
@@ -213,7 +213,3 @@ possibleTransitions Network{..} = do
 
 stepNetwork :: (Monad f, Alternative f) => Network f s -> f (Network f s)
 stepNetwork network = applyTransition <$> possibleTransitions network <*> pure network
-
-
-foo :: Int -> Int
-foo x = (+1) x
