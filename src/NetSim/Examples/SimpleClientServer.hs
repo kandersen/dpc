@@ -1,6 +1,6 @@
 module NetSim.Examples.SimpleClientServer where
 
-import NetSim.Core
+import           NetSim.Core
 
 data State = ClientInit NodeID
             | ClientDone Int
@@ -13,12 +13,12 @@ queryServer = RPC "Query" cstep sstep
     cstep :: ClientStep State
     cstep state = case state of
       ClientInit server -> pure (server, [], ClientDone . head)
-      _ -> empty
+      _                 -> empty
 
     sstep :: ServerStep State
     sstep [] state = case state of
       Server n -> pure ([n], state)
-      _ -> empty
+      _        -> empty
 
 initNetwork :: Network f State
 initNetwork = initializeNetwork nodes [(0, queryServer)]

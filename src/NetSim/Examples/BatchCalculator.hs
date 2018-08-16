@@ -1,15 +1,16 @@
 {-# LANGUAGE RecordWildCards #-}
 module NetSim.Examples.BatchCalculator where
 
-import NetSim.Core
-import NetSim.Language
-import qualified Data.Map as Map
+import qualified Data.Map        as Map
+import           NetSim.Core
+import           NetSim.Language
 
 data PState = ClientInit NodeID NodeID Int Int
             | ClientDone Int
             | ServerBatch Int [(NodeID, Int, Int)]
             | ServerSend Int [(NodeID, Int)]
             deriving Show
+
 
 computeProtocol :: Alternative f => Protlet f PState
 computeProtocol = ARPC "Compute" client serverRec serverSend
@@ -69,7 +70,7 @@ initNetwork = initializeNetwork nodes protlets
 
 calculatorServer :: MessagePassing m => Label -> m a
 calculatorServer label = do
-  Message client _ [x, y] _ _ <- spinReceive label ["Compute__Request"]
+  Message client _ [x, y] _ _ <- spinReceive [label] ["Compute__Request"]
   send client label "Compute__Response" [x + y]
   calculatorServer label
 
@@ -84,10 +85,10 @@ calcConfiguration = Configuration {
   _confNodeStates = Map.fromList [
                         (0, calculatorServer label)
                       , (1, calculatorClient label 40 2 0)
-                      , (2, calculatorClient label 100 11 0) 
+                      , (2, calculatorClient label 100 11 0)
                       ],
   _confSoup = []
   }
-  where 
+  where
     label :: NodeID
     label = 0

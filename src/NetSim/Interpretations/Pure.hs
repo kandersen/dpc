@@ -1,13 +1,13 @@
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RecordWildCards           #-}
+{-# LANGUAGE ScopedTypeVariables       #-}
 module NetSim.Interpretations.Pure where
-import NetSim.Language
-import NetSim.Core
-import NetSim.Util
-import qualified Data.Map as Map
-import Data.List (sortBy)
-import Data.Ord (comparing)
+import           Data.List       (sortBy)
+import qualified Data.Map        as Map
+import           Data.Ord        (comparing)
+import           NetSim.Core
+import           NetSim.Language
+import           NetSim.Util
 
 -- Pure implementation.
 --
@@ -15,12 +15,12 @@ import Data.Ord (comparing)
 -- This can be used for pure execution of programs, e.g.
 -- to allow stepping through computations.
 -- The `Par` constructor embeds a 'schedule' into the list of subcomputations
--- This allows a 'semi-stateful' interpretation of the AST, 
+-- This allows a 'semi-stateful' interpretation of the AST,
 -- as can be seen in the small-step operational semantics implemented below.
 data DiSeL a = Pure a
              | forall b. Bind (DiSeL b) (b -> DiSeL a)
              | Send NodeID Label String [Int] (DiSeL a)
-             | Receive Label [String] (Maybe Message -> DiSeL a)
+             | Receive [Label] [String] (Maybe Message -> DiSeL a)
              | This (NodeID -> DiSeL a)
              | forall b. Par [(Int, DiSeL b)] ([b] -> DiSeL a)
 
@@ -28,17 +28,17 @@ instance Show a => Show (DiSeL a) where
   show (Pure a) = "Pure " ++ show a
   show (Bind _ _) = "Bind ma <Continuation>"
   show (Send nodeid label tag body k) = concat ["Send[", show label, ", ", tag, "] ", show body, show nodeid, "(", show k, ")"]
-  show (Receive label tags _) = concat ["Receive[", show label, ", {", show tags, "}] <Continuation>"]
+  show (Receive labels tags _) = concat ["Receive[", show labels, ", {", show tags, "}] <Continuation>"]
   show (This _) = "This <Continuation>"
   show (Par _ _) = "Par Schedule cont"
 
 instance Functor DiSeL where
-  fmap f (Pure a) = Pure (f a)
-  fmap f (Bind ma fb) = Bind ma (fmap f . fb)
+  fmap f (Pure a)                   = Pure (f a)
+  fmap f (Bind ma fb)               = Bind ma (fmap f . fb)
   fmap f (Send label tag body to k) = Send label tag body to (fmap f k)
-  fmap f (Receive label tags k) = Receive label tags (fmap f . k)
-  fmap f (This k) = This (fmap f . k)
-  fmap f (Par as k) = Par as (fmap f . k)
+  fmap f (Receive label tags k)     = Receive label tags (fmap f . k)
+  fmap f (This k)                   = This (fmap f . k)
+  fmap f (Par as k)                 = Par as (fmap f . k)
 
 instance Applicative DiSeL where
   pure = Pure
@@ -65,21 +65,21 @@ instance Par DiSeL where
 -- possibly a message to be sent, an updated message soup and
 -- the continuation of the program.
 stepDiSeL :: NodeID -> [Message] -> DiSeL a -> (Maybe Message, [Message], DiSeL a)
-stepDiSeL    _ soup (Pure a) = 
+stepDiSeL    _ soup (Pure a) =
   (Nothing, soup, Pure a)
 stepDiSeL nodeID soup (Send to label tag body k) =
   (Just $ Message nodeID tag body to label, soup, k)
-stepDiSeL nodeID soup (Receive label tags k) = 
+stepDiSeL nodeID soup (Receive labels tags k) =
   case oneOfP isMessage soup of
-    Nothing -> (Nothing, soup, k Nothing)
+    Nothing           -> (Nothing, soup, k Nothing)
     Just (msg, soup') -> (Nothing, soup', k $ Just msg)
   where
-    isMessage Message{..} = _msgTag `elem` tags && _msgTo == nodeID && _msgLabel == label
+    isMessage Message{..} = _msgTag `elem` tags && _msgTo == nodeID && _msgLabel `elem` labels
 stepDiSeL nodeID soup (This k) =
   (Nothing, soup, k nodeID)
-stepDiSeL nodeID soup (Par mas k) = 
+stepDiSeL nodeID soup (Par mas k) =
   case check mas of
-    Nothing -> 
+    Nothing ->
       let ((n, ma):mas') = mas in
       let (mmsg, soup', ma') = stepDiSeL nodeID soup ma in
       (mmsg, soup', Par (snoc mas' (n, ma')) k)
@@ -89,11 +89,11 @@ stepDiSeL nodeID soup (Par mas k) =
     check [] = Just []
     check ((n, ma):mas') = case ma of
       Pure a -> ((n, a):) <$> check mas'
-      _ -> Nothing
-stepDiSeL nodeID soup (Bind ma fb) = 
+      _      -> Nothing
+stepDiSeL nodeID soup (Bind ma fb) =
   case ma of
     Pure a -> (Nothing, soup, fb a)
-    _ -> 
+    _ ->
       let (mmsg, soup', ma') = stepDiSeL nodeID soup ma in
       (mmsg, soup', Bind ma' fb)
 
@@ -104,12 +104,12 @@ runPure initConf = go (cycle $ _confNodes initConf) initConf
     go     [] conf = [(Nothing, conf)]
     go (n:ns) conf = do
       let (mmsg, soup', node') = stepDiSeL n (_confSoup conf) (_confNodeStates conf Map.! n)
-      let (schedule') = case node' of
+      let schedule' = case node' of
                         Pure _ -> filter (/= n) ns
-                        _ -> ns
+                        _      -> ns
       let states' = Map.insert n node' (_confNodeStates conf)
       let soup'' = case mmsg of
-                     Nothing -> soup'
+                     Nothing  -> soup'
                      Just msg -> msg : soup'
       let conf' = conf { _confNodeStates = states', _confSoup = soup'' }
       ((mmsg, conf'):) <$> go schedule' $ conf'

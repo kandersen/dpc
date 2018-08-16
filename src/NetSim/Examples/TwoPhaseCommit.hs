@@ -1,6 +1,6 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase      #-}
+{-# LANGUAGE RankNTypes      #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE RankNTypes #-}
 module NetSim.Examples.TwoPhaseCommit(
     initNetwork
   , initNetworkMetadata
@@ -9,13 +9,13 @@ module NetSim.Examples.TwoPhaseCommit(
   , tpcInvariant
   ) where
 
-import NetSim.Core
-import NetSim.Invariant
-import NetSim.Language
+import           NetSim.Core
+import           NetSim.Invariant
+import           NetSim.Language
 
-import Control.Monad (forM)
+import           Control.Monad    (forM)
 
-import Lens.Micro
+import           Lens.Micro
 
 data State = CoordinatorInit [NodeID]
            | CoordinatorCommit [NodeID]
@@ -115,9 +115,10 @@ initNetworkMetadata = TPCMetaData {
   }
 
 data TPCMetaData = TPCMetaData {
-  _coordinator :: NodeID,
+  _coordinator  :: NodeID,
   _participants :: [NodeID]
   }
+
 
 -- Invariant Utilities
 type TPCInv = Invariant TPCMetaData State Bool
@@ -142,7 +143,7 @@ forCoordinator predicate = do
 -- # Top-Level Invariant
 
 tpcInvariant :: TPCInv
-tpcInvariant = everythingInit 
+tpcInvariant = everythingInit
           <||> phaseOne
           <||> phaseTwo
 
@@ -161,7 +162,7 @@ everythingInit = do
 
 participantPhaseOne :: NodeID -> TPCInv
 participantPhaseOne pt = do
-  cn <- getCoordinator 
+  cn <- getCoordinator
   foldOr [
     runningInState ParticipantInit pt
     <&&> noMessageFromTo pt cn
@@ -188,7 +189,7 @@ participantPhaseOneResponded comitted pt = do
       else runningInState (ParticipantRespondedNo cn) pt
 
 coordinatorPhaseOne :: NodeID -> TPCInv
-coordinatorPhaseOne cn = 
+coordinatorPhaseOne cn =
   blockingOn "Prepare__Response" cn $ \responses ->
       and <$> forM responses (\Message{..} ->
         participantPhaseOneResponded (_msgBody == [1]) _msgFrom)
@@ -238,24 +239,24 @@ coordinatorPhaseTwoSendAborts :: NodeID -> TPCInv
 coordinatorPhaseTwoSendAborts cn = do
   participants <- getParticipants
   runningInState (CoordinatorAbort participants) cn <&&>
-    (or <$> forM participants 
+    (or <$> forM participants
               (runningInState (ParticipantRespondedNo cn)))
 
 coordinatorPhaseTwoReceiveAborts :: NodeID -> TPCInv
 coordinatorPhaseTwoReceiveAborts cn =
-  blockingOn "Decide__Response" cn $ \_ -> 
+  blockingOn "Decide__Response" cn $ \_ ->
     forallParticipants participantPhaseTwoAbort
 
 coordinatorPhaseTwoSendCommits :: NodeID -> TPCInv
 coordinatorPhaseTwoSendCommits cn = do
   participants <- getParticipants
   runningInState (CoordinatorCommit participants) cn <&&>
-    (and <$> forM participants 
+    (and <$> forM participants
               (runningInState (ParticipantRespondedYes cn)))
 
 coordinatorPhaseTwoReceiveCommits :: NodeID -> TPCInv
 coordinatorPhaseTwoReceiveCommits cn =
-  blockingOn "Decide__Response" cn $ \_ -> 
+  blockingOn "Decide__Response" cn $ \_ ->
     forallParticipants participantPhaseTwoCommit
 
 phaseTwoCommit :: TPCInv
@@ -271,7 +272,7 @@ phaseTwoAbort = do
     coordinatorPhaseTwoReceiveAborts cn
 
 phaseTwo :: TPCInv
-phaseTwo = phaseTwoCommit <||> phaseTwoAbort  
+phaseTwo = phaseTwoCommit <||> phaseTwoAbort
 
 -- Implementation
 
@@ -282,12 +283,12 @@ tpcCoordinator label n participants = do
     then broadcast label "Decide" [0] participants
     else broadcast label "Decide" [1] participants
   tpcCoordinator label (n + 1) participants
-  where 
+  where
     isReject Message{..} = _msgBody == [0]
 
 tpcClient :: MessagePassing m => Label -> Int -> Int -> m a
 tpcClient label n b = do
-  Message server tag body _ _ <- spinReceive label ["Prepare__Broadcast", "Decide__Broadcast"]
+  Message server tag body _ _ <- spinReceive [label] ["Prepare__Broadcast", "Decide__Broadcast"]
   case (tag, body) of
       ("Prepare__Broadcast", []) ->
         if n `mod` b == 0

@@ -16,5 +16,25 @@ dependencies:
   - stm
 
 library:
-  exposed-modules: NetSim.Core
+  exposed-modules: 
+    - NetSim.Core
+    - NetSim.Examples.Calculator.Calculator
+    - NetSim.Interpretations.WebSockets
   source-dirs: src
+
+executables:
+  poly-server: 
+    dependencies:
+      - netsim
+    ghc-options:
+      - -main-is 
+      - NetSim.Examples.Calculator.Server
+    main: src/NetSim/Examples/Calculator/Server.hs
+  poly-client: 
+    dependencies:
+      - netsim
+    ghc-options:
+      - -main-is 
+      - NetSim.Examples.Calculator.Client
+    main: src/NetSim/Examples/Calculator/Client.hs
+

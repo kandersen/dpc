@@ -1,56 +1,55 @@
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TemplateHaskell            #-}
 module NetSim.Interpretations.WebSockets where
 
-import Data.Map (Map, (!))
-import qualified Data.Map as Map
-import Data.List (delete)
-import Data.Foldable
+import           Data.Foldable
+import           Data.List                  (delete)
+import           Data.Map                   (Map, (!))
+import qualified Data.Map                   as Map
 
-import Control.Monad
-import Control.Monad.Reader
-import Control.Monad.State
-import Control.Exception (catch, bracket)
+import           Control.Exception          (bracket, catch)
+import           Control.Monad
+import           Control.Monad.Reader
+import           Control.Monad.State
 
-import System.Socket as Socket
-import System.Socket.Family.Inet
-import System.Socket.Type.Stream
-import System.Socket.Protocol.TCP
+import           System.Socket              as Socket
+import           System.Socket.Family.Inet
+import           System.Socket.Protocol.TCP
+import           System.Socket.Type.Stream
 
-import Control.Concurrent.STM.TChan
-import Control.Concurrent.STM
-import Control.Concurrent
+import           Control.Concurrent
+import           Control.Concurrent.STM
 
-import NetSim.Core
-import NetSim.Language
+import           NetSim.Core
+import           NetSim.Language
 
-import Lens.Micro.TH
-import Lens.Micro.Mtl
+import           Lens.Micro.Mtl
+import           Lens.Micro.TH
 
-import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import Data.Serialize
+import           Data.ByteString            (ByteString)
+import qualified Data.ByteString            as BS
+import           Data.Serialize
 
 type DSocket = Socket Inet Stream TCP
 
 type NetworkDescription = Map NodeID (SocketAddress Inet)
 
 data NetworkContext = NetworkContext {
-    _this :: NodeID,
+    _this        :: NodeID,
     _addressBook :: Map NodeID DSocket,
-    _inbox :: TChan Message
+    _inbox       :: TChan Message
 }
 makeLenses ''NetworkContext
 
 newtype SocketRunnerT m a = SocketRunnerT {
     runSocketRunnerT :: ReaderT NetworkContext m a }
     deriving (
-     Functor, 
-     Applicative, 
-     Monad, 
-     MonadTrans, 
+     Functor,
+     Applicative,
+     Monad,
+     MonadTrans,
      MonadIO,
      MonadReader NetworkContext
     )
@@ -66,12 +65,12 @@ instance (MonadIO m, Monad m) => MessagePassing (SocketRunnerT m) where
     when (n /= sent) $
       liftIO . putStrLn $ "Whoops, sent " ++ show sent ++ " but expected " ++ show n ++ "."
 
-  receive lbl tags = do
+  receive lbls tags = do
     inboxChan <- view inbox
     mmsg <- liftIO . atomically $ tryReadTChan inboxChan
     case mmsg of
-      Just msg@Message{..} | _msgLabel == lbl && _msgTag `elem` tags -> return mmsg
-                           | otherwise -> do 
+      Just msg@Message{..} | _msgLabel `elem` lbls && _msgTag `elem` tags -> return mmsg
+                           | otherwise -> do
                                liftIO . atomically $ writeTChan inboxChan msg
                                return Nothing
       Nothing -> return Nothing
@@ -97,7 +96,7 @@ mailman = do
           mmsg :: Either String Message <- liftIO $ decode <$> Socket.receive s 1024 mempty
           case mmsg of
             Right m -> return m
-            Left _ -> go ss
+            Left _  -> go ss
 
 establishMesh :: NodeID -> NetworkDescription -> IO NetworkContext
 establishMesh thisID nd = do
@@ -116,7 +115,7 @@ establishMesh thisID nd = do
     go        _ [] = return ()
     go mySocket (nid:nids) = do
       if nid == thisID
-        then do 
+        then do
           lift $ print "My turn!"
           acceptConnectionForPeers mySocket (delete thisID $ Map.keys nd)
         else do
@@ -126,7 +125,7 @@ establishMesh thisID nd = do
           lift . print $ "Sent " ++ show sentBytes ++ " to peer!"
           addressBook %= Map.insert nid peerSocket
       go mySocket nids
-  
+
     retryConnect :: SocketAddress Inet -> IO DSocket
     retryConnect a = do
       peerSocket :: DSocket <- socket
@@ -153,23 +152,24 @@ parseNetworkDescription input = do
 releaseNetworkContext :: NetworkContext -> IO ()
 releaseNetworkContext = traverse_ Socket.close . Map.elems . _addressBook
 
-defaultMain :: NodeID -> SocketRunner a -> IO ()
-defaultMain thisID program = do
-  -- get peer addresses from file
-  (nd :: NetworkDescription) <- parseNetworkDescription =<< readFile "network.desc"
-  print nd
-  -- create mesh network of socket connections
+defaultMain :: NetworkDescription -> NodeID -> SocketRunner a -> IO ()
+defaultMain nd thisID program =
   bracket (establishMesh thisID nd) releaseNetworkContext $ \netctxt -> do
     mailmanThread <- forkIO $ run netctxt mailman
     void $ run netctxt program
     killThread mailmanThread
 
+networkDescriptionFromFile :: FilePath -> IO NetworkDescription
+networkDescriptionFromFile fp = readFile fp >>= parseNetworkDescription
+
+spamInstance :: Label
+spamInstance = 0
 
 echoBot :: SocketRunner ()
 echoBot = forever $ do
-  msg <- spinReceive 0 [""]
+  msg <- spinReceive [spamInstance] [""]
   liftIO $ print msg
 
 spamBot :: NodeID -> Int -> SocketRunner ()
-spamBot to body = forever $ do
-  NetSim.Language.send to 0 "" [body]
+spamBot to body = forever $
+  NetSim.Language.send to spamInstance "" [body]

@@ -1,22 +1,23 @@
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
 module NetSim.Examples.Database where
 
-import NetSim.Language
-import NetSim.Core
-import NetSim.Interpretations.SharedMemory
-import Control.Monad.IO.Class
-import Control.Concurrent
-import Control.Monad
-import Data.Map (Map, fromList)
-import qualified Data.Map as Map
+import           Control.Concurrent
+import           Control.Monad
+import           Control.Monad.IO.Class
+import           Data.Map                            (Map, fromList)
+import qualified Data.Map                            as Map
+import           NetSim.Core
+import           NetSim.Interpretations.SharedMemory
+import           NetSim.Language
 
 -- | Specification
 
-data S = ClientRead NodeID 
+
+data S = ClientRead NodeID
        | ClientWrite NodeID Int
        | ClientIdle NodeID
-       | Server Int 
+       | Server Int
        | SnapshotServer [Int]
        | SnapshotClient NodeID
        | SnapshotClientDone [Int]
@@ -24,13 +25,13 @@ data S = ClientRead NodeID
 clientRead :: Protlet f S
 clientRead = RPC "Read" clientStep serverStep
   where
-    clientStep = \case 
+    clientStep = \case
       ClientRead serverID -> Just (serverID, [], clientReceive serverID)
       _ -> Nothing
     clientReceive serverID [_] = ClientIdle serverID
     serverStep [] (Server n) = Just ([n], Server n)
 
-  
+
 clientWrite :: Protlet f S
 clientWrite = RPC "Write" clientStep serverStep
   where
@@ -47,33 +48,33 @@ requestSnapShot = RPC "Snap" clientStep serverStep
     clientStep = \case
       SnapshotClient serverID -> Just (serverID, [], SnapshotClientDone)
     serverStep [] (SnapshotServer snap) = Just (snap, SnapshotServer snap)
-      
+
 -- | Implementation
 type RWLock m = Ref m Int
 
 mkRWLock :: (SharedMemory m) => m (RWLock m)
 mkRWLock = allocRef 0
-  
+
 readerEnter :: SharedMemory m => RWLock m -> m ()
 readerEnter rwlock = do
   n <- readRef rwlock
   if n >= 0
     then do
       succeeded <- casRef rwlock n (n + 1)
-      when (not succeeded) $ readerEnter rwlock
+      unless succeeded $ readerEnter rwlock
     else readerEnter rwlock
 
 readerExit :: SharedMemory m => RWLock m -> m ()
 readerExit rwlock = do
     n <- readRef rwlock
     succeeded <- casRef rwlock n (n - 1)
-    when (not succeeded) $
+    unless succeeded $
       readerExit rwlock
 
 writerEnter :: SharedMemory m => RWLock m -> m ()
 writerEnter rwlock = do
     succeeded <- casRef rwlock 0 (-1)
-    when (not succeeded) $
+    unless succeeded $
       writerEnter rwlock
 
 writerExit :: SharedMemory m => RWLock m -> m ()
@@ -118,9 +119,9 @@ dbServer :: (Par m, SharedMemory m, MessagePassing m) => DBState m -> m a
 dbServer db = par (oneCell <$> (Map.keys . _cells) db ) undefined
   where
     oneCell label = do
-      Message client tag msg _ _ <- spinReceive label ["Read__Request", "Write__Request"]
+      Message client tag msg _ _ <- spinReceive [label] ["Read__Request", "Write__Request"]
       case (tag, msg) of
-        ("Read__Request", []) -> do                      
+        ("Read__Request", []) -> do
             val <- readDB db label
             send client label "Read__Response" [val]
         ("Write__Request", [v]) -> do
@@ -134,17 +135,17 @@ seconds = (* 1000000)
 snapshotter :: DBState Runner -> Runner a
 snapshotter db = do
     liftIO $ threadDelay (seconds 8)
-    forM_ (_locks db) $ readerEnter
-    vs <- forM (_cells db) $ readRef
+    forM_ (_locks db) readerEnter
+    vs <- forM (_cells db) readRef
     liftIO $ print vs
-    forM_ (_locks db) $ readerExit
+    forM_ (_locks db) readerExit
     snapshotter db
 
 takeSnap :: SharedMemory m => DBState m -> m [Int]
 takeSnap db = do
-  forM_ (Map.elems . _locks $ db) $ readerEnter
-  vs <- Map.elems <$> forM (_cells $ db) readRef
-  forM_ (Map.elems . _locks $ db) $ readerExit
+  forM_ (Map.elems . _locks $ db) readerEnter
+  vs <- Map.elems <$> forM (_cells db) readRef
+  forM_ (Map.elems . _locks $ db) readerExit
   return vs
 
 snapshotter' :: (Par m, SharedMemory m, MessagePassing m) => Label -> DBState m -> m a
@@ -160,19 +161,19 @@ snapshotter' label db = do
         go _ [] = lookForChanges loc
         go (s:ss) (l:ls) = do
           v <- readDB db l
-          if v == s 
+          if v == s
             then go ss ls
             else do
               takeSnap db >>= writeRef loc
               lookForChanges loc
 
     messenger loc = do
-      Message client _ _ _ _ <- spinReceive label ["Snap__Request"]
+      Message client _ _ _ _ <- spinReceive [label] ["Snap__Request"]
       ans <- readRef loc
       send client label "Snap__Response" ans
       messenger loc
 
-compositeServer :: (MessagePassing m, Par m, SharedMemory m) => [Label] -> Label -> m a 
+compositeServer :: (MessagePassing m, Par m, SharedMemory m) => [Label] -> Label -> m a
 compositeServer labels snapLabel = do
     db <- mkDB $ fromList (zip labels (repeat 0))
     par [snapshotter' snapLabel db, dbServer db] undefined
@@ -192,13 +193,13 @@ clientPredeterminedVals lbl server (x:xs) = do
     liftIO $ putStrLn $ concat ["Cell[", show lbl, "] has value ", show v, "\nValue to write: ", show x]
     [1] <- rpcCall lbl "Write" [x] server
     clientPredeterminedVals lbl server xs
-    
+
 initConf :: Configuration Runner ()
 initConf = Configuration {
     _confSoup = [],
     _confNodes = [0, 1],
     _confNodeStates = fromList [
-      (1, clientIO 3 serverID), 
+      (1, clientIO 3 serverID),
       (serverID, compositeServer instances 47)
     ]
 }

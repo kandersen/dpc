@@ -1,7 +1,8 @@
-{-# LANGUAGE RecordWildCards, ScopedTypeVariables #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module NetSim.Examples.DistributedLocking where
 
-import NetSim.Core
+import           NetSim.Core
 
 data State = ClientInit NodeID NodeID Int
            | ClientAcquired NodeID NodeID Int Int

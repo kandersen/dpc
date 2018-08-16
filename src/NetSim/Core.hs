@@ -1,21 +1,21 @@
+{-# LANGUAGE ApplicativeDo    #-}
+{-# LANGUAGE DeriveAnyClass   #-}
+{-# LANGUAGE DeriveGeneric    #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ApplicativeDo #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE RecordWildCards  #-}
 module NetSim.Core (
   module NetSim.Core,
   module Control.Applicative
   ) where
 
-import NetSim.Util
-import qualified Data.Map as Map
-import Data.Map (Map, (!))
-import Control.Applicative
-import Lens.Micro
+import           Control.Applicative
+import           Data.Map            (Map, (!))
+import qualified Data.Map            as Map
+import           Lens.Micro
+import           NetSim.Util
 
-import GHC.Generics
-import Data.Serialize
+import           Data.Serialize
+import           GHC.Generics
 
 --
 -- Protocol Description Datatypes
@@ -25,10 +25,10 @@ type NodeID = Int
 type Label = Int
 
 data Message = Message {
-  _msgFrom :: NodeID,
-  _msgTag  :: String,
-  _msgBody :: [Int],
-  _msgTo   :: NodeID,
+  _msgFrom  :: NodeID,
+  _msgTag   :: String,
+  _msgBody  :: [Int],
+  _msgTo    :: NodeID,
   _msgLabel :: Label
   }
   deriving (Show, Generic, Serialize)
@@ -86,7 +86,7 @@ applyTransition (ReceivedMessage label nodeID s' inbox') =
   update label nodeID s' inbox'
 applyTransition (SentMessages label nodeID s' inbox' msgs) =
   foldr (.) id (deliver <$> msgs) .  update label nodeID s' inbox'
-  
+
 update :: Label -> NodeID -> NodeState s -> [Message] -> (Network f s -> Network f s)
 update label nodeID s' inbox' network@Network{..} = network {
     _states = Map.adjust (Map.insert label s') nodeID _states,
@@ -109,7 +109,7 @@ resolveBlock label tag nodeID inbox responders k = do
       (_1 %~ (response:)) <$> findAllResponses inbox' rs
 
     isResponseFrom from Message{..} = _msgFrom == from && _msgTag == tag && _msgLabel == label
-  
+
 tryClientStep :: (Alternative m) =>
   Label -> String -> ClientStep s -> NodeID -> s -> [Message] -> m (Transition s)
 tryClientStep label protlet step nodeID state inbox = case step state of
@@ -154,7 +154,7 @@ tryReceive label tag receive nodeID state inbox = do
       pure $ ReceivedMessage label nodeID (Running state') inbox'
     _ ->
       empty
-  where 
+  where
     isGood :: Message -> Bool
     isGood Message{..} = tag == _msgTag && _msgLabel == label
 
@@ -208,8 +208,12 @@ possibleTransitions Network{..} = do
     Running s -> do
       (plabel, protlet) <- fst <$> oneOf _protlets
       if plabel == label
-        then stepProtlet nodeID s inbox (plabel, protlet)
-        else empty
+      then stepProtlet nodeID s inbox (plabel, protlet)
+      else empty
 
 stepNetwork :: (Monad f, Alternative f) => Network f s -> f (Network f s)
 stepNetwork network = applyTransition <$> possibleTransitions network <*> pure network
+
+
+foo :: Int -> Int
+foo x = (+1) x

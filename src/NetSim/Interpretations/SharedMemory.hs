@@ -1,26 +1,27 @@
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE TypeSynonymInstances       #-}
 module NetSim.Interpretations.SharedMemory where
 
-import Control.Monad.Reader
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Control.Concurrent
-import NetSim.Core
-import NetSim.Language
+import           Control.Concurrent
+import           Control.Monad.Reader
+import           Data.Map             (Map)
+import qualified Data.Map             as Map
+import           NetSim.Core
+import           NetSim.Language
 --
 -- IO Implementation with real threads!
 --
-newtype RunnerT m a = RunnerT { 
-  runRunnerT :: ReaderT (NodeID, Chan Message, Map NodeID (Chan Message)) m a 
+newtype RunnerT m a = RunnerT {
+  runRunnerT :: ReaderT (NodeID, Chan Message, Map NodeID (Chan Message)) m a
   }
-  deriving (Functor, 
-            Applicative, 
-            Monad, 
-            MonadTrans, 
+  deriving (Functor,
+            Applicative,
+            Monad,
+            MonadTrans,
             MonadIO,
             MonadReader (NodeID, Chan Message, Map NodeID (Chan Message))
            )
@@ -31,10 +32,10 @@ instance MessagePassing Runner where
   send to label tag body = do
     (nodeID, _, channels) <- ask
     lift $ writeChan (channels Map.! to) (Message nodeID tag body to label)
-  receive label tags = do
+  receive labels tags = do
     (_, inbox, _) <- ask
     msg@Message{..} <- lift $ readChan inbox
-    if _msgTag `elem` tags && _msgLabel == label
+    if _msgTag `elem` tags && _msgLabel `elem` labels
       then return $ Just msg
       else do
         lift $ writeChan inbox msg
@@ -54,7 +55,7 @@ instance Par Runner where
     vars <- forkThreads env mas
     as <-  awaitThreads vars
     k as
-    where      
+    where
       forkThreads _ [] = return []
       forkThreads env (ma:mas') = do
         var <- liftIO newEmptyMVar
