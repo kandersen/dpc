@@ -115,8 +115,8 @@ We have:
 | SimpleClientServer | X             |           |                    |                | 
 | TwoPhaseCommit     | X             | X         | M                  |                | 
 
-X: Implemented
-M: Message Passing
-S: Shared memory
-P: Parallel Execution
-(P): Parallel version implemented in addition to sequential
+- _X: Implemented_
+- _M: Message Passing_
+- _S: Shared memory_
+- _P: Parallel Execution_
+- _(P): Parallel version implemented in addition to sequential_
