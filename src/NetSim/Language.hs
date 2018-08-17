@@ -66,3 +66,4 @@ data Configuration m a = Configuration {
   _confSoup       :: [Message]
   }
   deriving Show
+

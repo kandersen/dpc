@@ -1,11 +1,13 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE RecordWildCards           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
 module NetSim.Interpretations.Pure where
-import           Data.List       (sortBy)
-import qualified Data.Map        as Map
-import           Data.Ord        (comparing)
+import           Data.List        (sortBy)
+import qualified Data.Map         as Map
+import           Data.Ord         (comparing)
 import           NetSim.Core
+import           NetSim.Invariant
 import           NetSim.Language
 import           NetSim.Util
 
@@ -97,6 +99,7 @@ stepDiSeL nodeID soup (Bind ma fb) =
       let (mmsg, soup', ma') = stepDiSeL nodeID soup ma in
       (mmsg, soup', Bind ma' fb)
 
+
 runPure :: Configuration DiSeL a -> [(Maybe Message, Configuration DiSeL a)]
 runPure initConf = go (cycle $ _confNodes initConf) initConf
   where
@@ -113,3 +116,11 @@ runPure initConf = go (cycle $ _confNodes initConf) initConf
                      Just msg -> msg : soup'
       let conf' = conf { _confNodeStates = states', _confSoup = soup'' }
       ((mmsg, conf'):) <$> go schedule' $ conf'
+
+--
+-- Model Checking
+--
+
+-- type Invariant m s a = forall f. (m, Label, Network f s) -> a
+modelcheck :: Invariant m s a -> Network f s -> DiSeL a -> Bool
+modelcheck _ _ _ = True

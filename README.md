@@ -92,3 +92,31 @@ runGUI NetSim.AppName.initNetwork
 where `AppName` is, e.g., `BatchCalculator` or `DistributedLocking`. Use digits `1-N` to choose the next system move.
 
 
+## Taking Stock
+
+We have:
+
+* A *specification language* of RPCs. It is implemented in `Core.hs`. This is the language currently described in the "Overview" section of the paper. It has 'combinators' for RPCs and Broadcast messages, and is at the moment "interactively executable" i.e. simulations can be explored using the GUI. Technically, it is executable in any monad providing a backtracking binary choice operator.
+* A small library for describing predicates of the states in the aforementioned specification language. It is implemented in `Invariant.hs`. Provided an invariant, the GUI checks the validity of this invariant at every step of the exploration. This is so far not described in the paper, though I have tried outlining where it might fit in the second-to-last paragraph in the "Overview" section.
+* A simple monadic *programming language*, a DSL for Message passing, parallel execution and shared memory, and compound operations built from these primitives is found in `Language.hs`. In the paper, it is described in Section 3, "A DiSeL Monad".
+* The aforementioned language is given 3 notions of execution. They are in turn described in Section 3 of the paper.
+    - a _pure_ interpretation, `Interpretations/Pure.hs` that implements the operational semantics of message passing and parallel execution in a purely functional style. The model is closely related to that of the specification language, though there is no actual code-sharing at the moment.
+    - a _shared memory_ interpretation, `Interpretations/SharedMemory.hs` that implements the operational semantics of message passing, parallel execution and fine-grained shared memory operations using Haskell's notion of IO threads. The hierarchy of nodes and their local threads run as an actual hierarchy of Haskell IO threads.
+    - a _web socket_ interpretation, `Interpretations/WebSockets.hs` that implement a library for building applications that implement nodes communicating via web-sockets. At the moment it supports just the message passing DSL, but should easily be extended to node-local concurrency.
+* A series of examples that use and demonstrate an array of all of the above:
+
+| Example            | Specification | Invariant | DSL Implementation | Web Socket App | 
+|--------------------|---------------|-----------|--------------------|----------------| 
+| Calculator         | X             |           | M(P)               | X              | 
+| BatchCalculator    | X             |           | M                  |                | 
+| Database           | X             |           | MSP                |                | 
+| DistributedLocking | X             |           |                    |                | 
+| Paxos              |               |           | M                  |                | 
+| SimpleClientServer | X             |           |                    |                | 
+| TwoPhaseCommit     | X             | X         | M                  |                | 
+
+X: Implemented
+M: Message Passing
+S: Shared memory
+P: Parallel Execution
+(P): Parallel version implemented in addition to sequential
