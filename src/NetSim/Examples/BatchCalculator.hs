@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleContexts #-}
 module NetSim.Examples.BatchCalculator where
 
 import qualified Data.Map        as Map
@@ -68,18 +69,18 @@ initNetwork = initializeNetwork nodes protlets
     protlets :: Alternative f => [(NodeID, Protlet f PState)]
     protlets = [(label, computeProtocol)]
 
-calculatorServer :: MessagePassing m => Label -> m a
+calculatorServer :: MessagePassing () m => Label -> m a
 calculatorServer label = do
-  Message client _ [x, y] _ _ <- spinReceive [label] ["Compute__Request"]
-  send client label "Compute__Response" [x + y]
+  Message client _ [x, y] _ _ <- spinReceive [((),label, "Compute__Request")]
+  send () client label "Compute__Response" [x + y]
   calculatorServer label
 
-calculatorClient :: MessagePassing m => Label -> Int -> Int -> NodeID -> m Int
+calculatorClient :: MessagePassing () m => Label -> Int -> Int -> NodeID -> m Int
 calculatorClient label a b server = do
-  [x] <- rpcCall label "Compute" [a, b] server
+  [x] <- rpcCall () label "Compute" [a, b] server
   return x
 
-calcConfiguration :: MessagePassing m => Configuration m Int
+calcConfiguration :: MessagePassing () m => Configuration m Int
 calcConfiguration = Configuration {
   _confNodes = [0, 1, 2],
   _confNodeStates = Map.fromList [

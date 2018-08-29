@@ -15,7 +15,7 @@ data State = ClientInit NodeID NodeID Int
            | ResourceModifySucceeded NodeID NodeID Int
            | ResourceModifyFailed NodeID NodeID Int
            deriving Show
-
+        
 -- Spec
 
 acquire :: Protlet f State

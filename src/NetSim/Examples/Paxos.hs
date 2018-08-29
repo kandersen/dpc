@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 module NetSim.Examples.Paxos where
 
 import           NetSim.Core
@@ -9,9 +11,9 @@ import           Data.Maybe      (fromMaybe)
 
 -- Round-Based Register
 
-readRBR :: MessagePassing m => Label -> [NodeID] -> Int -> m (Bool, Maybe Int)
+readRBR :: MessagePassing () m => Label -> [NodeID] -> Int -> m (Bool, Maybe Int)
 readRBR lbl participants r = do
-  forM_ participants $ \pt -> send pt lbl "Read__Request" [r]
+  forM_ participants $ \pt -> send () pt lbl "Read__Request" [r]
   spinForResponses 0 Nothing []
   where
     n :: Double
@@ -27,7 +29,7 @@ readRBR lbl participants r = do
       if isDone q
         then return (True, maxV)
         else do
-          Message sender _ body _ _ <- spinReceive [lbl] ["Read__Response"]
+          Message sender _ body _ _ <- spinReceive [((), lbl, "Read__Response")]
           case body of
             [1, k, 0, kW] | k == r ->
               if kW >= maxKW
@@ -41,16 +43,16 @@ readRBR lbl participants r = do
             _ -> spinForResponses maxKW maxV q
 
 
-writeRBR :: MessagePassing m => Label -> [NodeID] -> Int -> Int -> m Bool
+writeRBR :: MessagePassing () m => Label -> [NodeID] -> Int -> Int -> m Bool
 writeRBR lbl participants r vW = do
-  forM_ participants $ \pt -> send pt lbl "Write__Request" [r, vW]
+  forM_ participants $ \pt -> send () pt lbl "Write__Request" [r, vW]
   spinForResponses []
   where
     n :: Double
     n = fromIntegral $ length participants
 
     spinForResponses q = do
-      Message sender _ body _ _ <- spinReceive [lbl] ["Write__Response"]
+      Message sender _ body _ _ <- spinReceive [((), lbl, "Write__Response")]
       case body of
         [1, k] | k == r ->
             if length q == ceiling ((n + 1.0) / 2.0)
@@ -59,34 +61,34 @@ writeRBR lbl participants r vW = do
         [0, k] | k == r -> return False
         _ -> spinForResponses q
 
-acceptor :: MessagePassing m => Label -> m a
+acceptor :: MessagePassing () m => Label -> m a
 acceptor lbl = go Nothing 0 0
   where
     go mv r w = do
-      Message sender tag body _ _ <- spinReceive [lbl] ["Read__Request", "Write__Request"]
+      Message sender tag body _ _ <- spinReceive [((), lbl, "Read__Request"), ((), lbl, "Write__Request")]
       case (tag, body) of
         ("Read__Request", [k]) ->
             if k < r
               then do
-                send sender lbl "Read__Response" [0, k]
+                send () sender lbl "Read__Response" [0, k]
                 go mv r w
               else do
                 let msg = case mv of
                             Nothing -> [1, k, 0, w]
                             Just v  -> [1, k, 1, v, w]
-                send sender lbl "Read__Response" msg
+                send () sender lbl "Read__Response" msg
                 go mv k w
         ("Write__Request", [k, vW]) ->
             if k < r
                 then do
-                  send sender lbl "Write__Response" [0, k]
+                  send () sender lbl "Write__Response" [0, k]
                   go mv r w
                 else do
-                  send sender lbl "Write__Response" [1, k]
+                  send () sender lbl "Write__Response" [1, k]
                   go (Just vW) k k
         _ -> error $ "Illformed request " ++ tag ++ ": " ++ show body
 
-proposeRC :: MessagePassing m =>
+proposeRC :: MessagePassing () m =>
   Label -> [NodeID] -> Int -> Int -> m (Bool, Maybe Int)
 proposeRC lbl participants r v0 = do
   (resR, mv) <- readRBR lbl participants r
@@ -99,9 +101,9 @@ proposeRC lbl participants r v0 = do
         else return (False, Nothing)
     else return (False, Nothing)
 
-proposeP :: MessagePassing m => Label -> [NodeID] -> Int -> m Int
+proposeP :: (NetworkNode m, MessagePassing () m) => Label -> [NodeID] -> Int -> m Int
 proposeP lbl participants v0 = do
-    k <- this
+    k <- this 
     loopTillSucceed k
   where
     loopTillSucceed k = do
@@ -111,7 +113,7 @@ proposeP lbl participants v0 = do
         else loopTillSucceed (k + length participants)
 
 
-initConf :: MessagePassing m => Configuration m Int
+initConf :: (NetworkNode m, MessagePassing () m) => Configuration m Int
 initConf = Configuration {
     _confNodes = [0..2],
     _confSoup = [],
@@ -120,5 +122,4 @@ initConf = Configuration {
         , (1, acceptor 0)
         , (2, acceptor 0)
       ]
-
-}
+  }

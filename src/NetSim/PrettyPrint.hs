@@ -34,17 +34,17 @@ ppProtocol (Broadcast name _ _ _) =
 ppNetwork :: (s -> String) -> Network m s -> String
 ppNetwork _ _ = "Network"
 
-ppConf :: Show a => Configuration DiSeL a -> String
+ppConf :: (Show a, Show t) => Configuration (DiSeL t) a -> String
 ppConf Configuration{..} = unlines $ ("Soup: " ++ show _confSoup) :
    [ concat [show nodeid, ": ", ppDiSeL' state] | (nodeid, state) <- Map.toList _confNodeStates ]
   where
     ppDiSeL' (Pure a) = "Returned " ++ show a
     ppDiSeL' a = ppDiSeL a
 
-ppDiSeL :: DiSeL a -> String
+ppDiSeL :: DiSeL t a -> String
 ppDiSeL (Pure _) = "Pure <val>"
 ppDiSeL (Bind ma _) = concat ["Bind(", ppDiSeL ma, ", <Cont>)"]
-ppDiSeL (Send to label tag body k) = concat ["Send[", show label, ", ", tag, "](", show body, ", ", show to, ", ", ppDiSeL k]
-ppDiSeL (Receive label tags _) = concat ["Receive[", show label, ", {", show tags, "}] <Cont>)"]
+ppDiSeL (Send _ to label tag body k) = concat ["Send[", show label, ", ", tag, "](", show body, ", ", show to, ", ", ppDiSeL k]
+ppDiSeL (Receive candidates _) = concat ["Receive[", show $ (\(_,l,t) -> (l, t)) <$> candidates, "}] <Cont>)"]
 ppDiSeL (This _) = "This <Cont>"
 ppDiSeL (Par mas _) = "Par [" ++ intercalate "," (ppDiSeL . snd <$> mas) ++ "]"

@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE MultiWayIf          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts    #-}
 module NetSim.Examples.Calculator.Calculator where
 
 import           NetSim.Core
@@ -45,23 +46,23 @@ initNetwork = initializeNetwork nodes protlets
 
 --- Implementation
 
-polynomialServer :: (MessagePassing m) => Label -> Label -> m a
+polynomialServer :: (MessagePassing () m) => Label -> Label -> m a
 polynomialServer addInstance mulInstance = loop
   where
-    loop :: (MessagePassing m) => m a
+    loop :: (MessagePassing () m) => m a
     loop = do
-      Message client _ args _ lbl <- spinReceive [addInstance, mulInstance] ["compute__Request"]
+      Message client _ args _ lbl <- spinReceive [((), addInstance, "compute__Request"), ((), mulInstance, "compute__Request")]
       let response = if | lbl == addInstance -> sum args
                         | lbl == mulInstance -> product args
-      send client lbl "compute__Response" [response]
+      send () client lbl "compute__Response" [response]
       loop
 
-parPolynomialServer :: (MessagePassing m, Par m) => Label -> Label -> m a
+parPolynomialServer :: (MessagePassing () m, Par m) => Label -> Label -> m a
 parPolynomialServer addInstance mulInstance = par [loop mulInstance product, loop addInstance sum] undefined
   where
     loop label f = do
-      Message client _ args _ _ <- spinReceive [label] ["compute__Request"]
-      send client label "compute__Response" [f args]
+      Message client _ args _ _ <- spinReceive [((), label, "compute__Request")]
+      send () client label "compute__Response" [f args]
       loop label f
 
 data Arith = Arith :+: Arith
@@ -77,22 +78,22 @@ instance Num Arith where
   abs = error "abs not implemented"
   signum = error "signum not implemented"
 
-polynomialClient :: (MessagePassing m) => Label -> Label -> NodeID -> Arith -> m Int
+polynomialClient :: (MessagePassing () m) => Label -> Label -> NodeID -> Arith -> m Int
 polynomialClient addLabel mulLabel server = go
   where
     go (ConstInt n) = pure n
     go (l :+: r) = do
       l' <- go l
       r' <- go r
-      [ans] <- rpcCall addLabel "compute" [l', r'] server
+      [ans] <- rpcCall () addLabel "compute" [l', r'] server
       return ans
     go (l :*: r) = do
       l' <- go l
       r' <- go r
-      [ans] <- rpcCall mulLabel "compute" [l', r'] server
+      [ans] <- rpcCall () mulLabel "compute" [l', r'] server
       return ans
 
-initConf :: (Par m, MessagePassing m) => Configuration m Int
+initConf :: (Par m, MessagePassing () m) => Configuration m Int
 initConf = Configuration {
   _confNodes = [serverID,1,2],
   _confSoup = [],

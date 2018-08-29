@@ -1,6 +1,7 @@
-{-# LANGUAGE LambdaCase      #-}
-{-# LANGUAGE RankNTypes      #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE LambdaCase       #-}
+{-# LANGUAGE RankNTypes       #-}
+{-# LANGUAGE RecordWildCards  #-}
+{-# LANGUAGE FlexibleContexts #-}
 module NetSim.Examples.TwoPhaseCommit(
     initNetwork
   , initNetworkMetadata
@@ -278,22 +279,22 @@ phaseTwo = phaseTwoCommit <||> phaseTwoAbort
 
 -- Implementation
 
-tpcCoordinator :: MessagePassing m => Label -> Int -> [NodeID] -> m a
+tpcCoordinator :: MessagePassing () m => Label -> Int -> [NodeID] -> m a
 tpcCoordinator label n participants = do
-  resps <- broadcast label "Prepare" [] participants
+  resps <- broadcast () label "Prepare" [] participants
   _ <- if any isReject resps
-    then broadcast label "Decide" [0] participants
-    else broadcast label "Decide" [1] participants
+    then broadcast () label "Decide" [0] participants
+    else broadcast () label "Decide" [1] participants
   tpcCoordinator label (n + 1) participants
   where
     isReject Message{..} = _msgBody == [0]
 
-tpcClient :: MessagePassing m => Label -> Int -> Int -> m a
+tpcClient :: MessagePassing () m => Label -> Int -> Int -> m a
 tpcClient label n b = do
-  Message server tag body _ _ <- spinReceive [label] ["Prepare__Broadcast", "Decide__Broadcast"]
+  Message server tag body _ _ <- spinReceive [((), label, "Prepare__Broadcast"), ((), label, "Decide__Broadcast")]
   case (tag, body) of
       ("Prepare__Broadcast", []) ->
         if n `mod` b == 0
-        then send server label "Prepare__Response" [1]
-        else send server label "Prepare__Response" [0]
+        then send () server label "Prepare__Response" [1]
+        else send () server label "Prepare__Response" [0]
   tpcClient label (n + 1) b

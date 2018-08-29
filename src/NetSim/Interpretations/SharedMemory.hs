@@ -1,9 +1,9 @@
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
 module NetSim.Interpretations.SharedMemory where
 
 import           Control.Concurrent
@@ -28,19 +28,21 @@ newtype RunnerT m a = RunnerT {
 
 type Runner = RunnerT IO
 
-instance MessagePassing Runner where
-  send to label tag body = do
+instance NetworkNode Runner where
+  this = (\(nodeID, _, _) -> nodeID) <$> ask
+
+instance MessagePassing t Runner where
+  send _ to label tag body = do
     (nodeID, _, channels) <- ask
     lift $ writeChan (channels Map.! to) (Message nodeID tag body to label)
-  receive labels tags = do
+  receive candidates = do
     (_, inbox, _) <- ask
-    msg@Message{..} <- lift $ readChan inbox
-    if _msgTag `elem` tags && _msgLabel `elem` labels
+    msg <- lift $ readChan inbox
+    if isReceivable msg candidates      
       then return $ Just msg
       else do
         lift $ writeChan inbox msg
         return Nothing
-  this = (\(nodeID, _, _) -> nodeID) <$> ask
 
 instance SharedMemory Runner where
   type Ref Runner = MVar

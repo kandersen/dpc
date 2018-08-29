@@ -2,10 +2,13 @@
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE RecordWildCards           #-}
 {-# LANGUAGE ScopedTypeVariables       #-}
+{-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE MultiParamTypeClasses     #-}
 module NetSim.Interpretations.Pure where
-import           Data.List        (sortBy)
+import           Data.List        (sortBy, find)
 import qualified Data.Map         as Map
 import           Data.Ord         (comparing)
+import Data.Maybe (isJust)
 import           NetSim.Core
 import           NetSim.Invariant
 import           NetSim.Language
@@ -19,64 +22,66 @@ import           NetSim.Util
 -- The `Par` constructor embeds a 'schedule' into the list of subcomputations
 -- This allows a 'semi-stateful' interpretation of the AST,
 -- as can be seen in the small-step operational semantics implemented below.
-data DiSeL a = Pure a
-             | forall b. Bind (DiSeL b) (b -> DiSeL a)
-             | Send NodeID Label String [Int] (DiSeL a)
-             | Receive [Label] [String] (Maybe Message -> DiSeL a)
-             | This (NodeID -> DiSeL a)
-             | forall b. Par [(Int, DiSeL b)] ([b] -> DiSeL a)
+data DiSeL t a = Pure a
+               | forall b. Bind (DiSeL t b) (b -> DiSeL t a)
+               | Send t NodeID Label String [Int] (DiSeL t a)
+               | Receive [(t, Label, String)] (Maybe Message -> DiSeL t a)
+               | This (NodeID -> DiSeL t a)
+               | forall b. Par [(Int, DiSeL t b)] ([b] -> DiSeL t a)
 
-instance Show a => Show (DiSeL a) where
+instance (Show a, Show t) => Show (DiSeL t a) where
   show (Pure a) = "Pure " ++ show a
   show (Bind _ _) = "Bind ma <Continuation>"
-  show (Send nodeid label tag body k) = concat ["Send[", show label, ", ", tag, "] ", show body, show nodeid, "(", show k, ")"]
-  show (Receive labels tags _) = concat ["Receive[", show labels, ", {", show tags, "}] <Continuation>"]
+  show (Send _ nodeid label tag body k) = concat ["Send[", show label, ", ", tag, "] ", show body, show nodeid, "(", show k, ")"]
+  show (Receive candidates _) = concat ["Receive[", show candidates, "] <Continuation>"]
   show (This _) = "This <Continuation>"
   show (Par _ _) = "Par Schedule cont"
 
-instance Functor DiSeL where
-  fmap f (Pure a)                   = Pure (f a)
-  fmap f (Bind ma fb)               = Bind ma (fmap f . fb)
-  fmap f (Send label tag body to k) = Send label tag body to (fmap f k)
-  fmap f (Receive label tags k)     = Receive label tags (fmap f . k)
-  fmap f (This k)                   = This (fmap f . k)
-  fmap f (Par as k)                 = Par as (fmap f . k)
+instance Functor (DiSeL t) where
+  fmap f (Pure a)                     = Pure (f a)
+  fmap f (Bind ma fb)                 = Bind ma (fmap f . fb)
+  fmap f (Send t label tag body to k) = Send t label tag body to (fmap f k)
+  fmap f (Receive candidates k)       = Receive candidates (fmap f . k)
+  fmap f (This k)                     = This (fmap f . k)
+  fmap f (Par as k)                   = Par as (fmap f . k)
 
-instance Applicative DiSeL where
+instance Applicative (DiSeL t) where
   pure = Pure
   (Pure f) <*> ma = fmap f ma
   (Bind ma fb) <*> mb = Bind ma ((<*> mb) . fb)
-  (Send label tag body to k) <*> mb = Send label tag body to (k <*> mb)
-  (Receive label tags k) <*> mb = Receive label tags ((<*> mb) . k)
+  (Send t label tag body to k) <*> mb = Send t label tag body to (k <*> mb)
+  (Receive candidates k) <*> mb = Receive candidates ((<*> mb) . k)
   (This k) <*> mb = This ((<*> mb) . k)
   (Par as k) <*> mb = Par as ((<*> mb) . k)
 
-instance Monad DiSeL where
+instance Monad (DiSeL t) where
   (>>=) = Bind
 
-instance MessagePassing DiSeL where
-  send to label tag body = Send to label tag body (pure ())
-  receive label tags = Receive label tags pure
+instance NetworkNode (DiSeL t) where
   this = This pure
 
-instance Par DiSeL where
+instance MessagePassing t (DiSeL t) where
+  send t to label tag body = Send t to label tag body (pure ())
+  receive candidates = Receive candidates pure
+
+instance Par (DiSeL t) where
   par as = Par (zip [0..] as)
 
 -- Single-step evaluation. Takes a name for `this`, the
 -- message soup and the program under evaluation and produces
 -- possibly a message to be sent, an updated message soup and
 -- the continuation of the program.
-stepDiSeL :: NodeID -> [Message] -> DiSeL a -> (Maybe Message, [Message], DiSeL a)
+stepDiSeL :: NodeID -> [Message] -> DiSeL t a -> (Maybe Message, [Message], DiSeL t a)
 stepDiSeL    _ soup (Pure a) =
   (Nothing, soup, Pure a)
-stepDiSeL nodeID soup (Send to label tag body k) =
+stepDiSeL nodeID soup (Send _ to label tag body k) =
   (Just $ Message nodeID tag body to label, soup, k)
-stepDiSeL nodeID soup (Receive labels tags k) =
-  case oneOfP isMessage soup of
+stepDiSeL nodeID soup (Receive candidates k) =
+  case oneOfP isMessageForThis soup of
     Nothing           -> (Nothing, soup, k Nothing)
     Just (msg, soup') -> (Nothing, soup', k $ Just msg)
   where
-    isMessage Message{..} = _msgTag `elem` tags && _msgTo == nodeID && _msgLabel `elem` labels
+    isMessageForThis Message{..} = isJust . find (\(_,lbl,t) -> _msgTo == nodeID && _msgLabel == lbl && _msgTag == t) $ candidates
 stepDiSeL nodeID soup (This k) =
   (Nothing, soup, k nodeID)
 stepDiSeL nodeID soup (Par mas k) =
@@ -100,10 +105,10 @@ stepDiSeL nodeID soup (Bind ma fb) =
       (mmsg, soup', Bind ma' fb)
 
 
-runPure :: Configuration DiSeL a -> [(Maybe Message, Configuration DiSeL a)]
+runPure :: Configuration (DiSeL t) a -> [(Maybe Message, Configuration (DiSeL t) a)]
 runPure initConf = go (cycle $ _confNodes initConf) initConf
   where
-    go :: [NodeID] -> Configuration DiSeL a -> [(Maybe Message, Configuration DiSeL a)]
+    go :: [NodeID] -> Configuration (DiSeL t) a -> [(Maybe Message, Configuration (DiSeL t) a)]
     go     [] conf = [(Nothing, conf)]
     go (n:ns) conf = do
       let (mmsg, soup', node') = stepDiSeL n (_confSoup conf) (_confNodeStates conf Map.! n)
@@ -122,5 +127,5 @@ runPure initConf = go (cycle $ _confNodes initConf) initConf
 --
 
 -- type Invariant m s a = forall f. (m, Label, Network f s) -> a
-modelcheck :: Invariant m s a -> Network f s -> DiSeL a -> Bool
+modelcheck :: Invariant m s a -> Network f s -> DiSeL (Protlet f s)  a -> Bool
 modelcheck _ _ _ = True

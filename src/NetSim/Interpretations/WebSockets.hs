@@ -2,6 +2,8 @@
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE FlexibleInstances          #-}
 module NetSim.Interpretations.WebSockets where
 
 import           Data.Foldable
@@ -54,9 +56,11 @@ newtype SocketRunnerT m a = SocketRunnerT {
      MonadReader NetworkContext
     )
 
-instance (MonadIO m, Monad m) => MessagePassing (SocketRunnerT m) where
+instance Monad m => NetworkNode (SocketRunnerT m) where
   this = _this <$> ask
-  send to lbl tag body = do
+
+instance (MonadIO m, Monad m) => MessagePassing t (SocketRunnerT m) where
+  send _ to lbl tag body = do
     thisID <- NetSim.Language.this
     let p = encode $ Message thisID tag body to lbl
     let n = BS.length p
@@ -65,11 +69,12 @@ instance (MonadIO m, Monad m) => MessagePassing (SocketRunnerT m) where
     when (n /= sent) $
       liftIO . putStrLn $ "Whoops, sent " ++ show sent ++ " but expected " ++ show n ++ "."
 
-  receive lbls tags = do
+  receive candidates = do
     inboxChan <- view inbox
     mmsg <- liftIO . atomically $ tryReadTChan inboxChan
     case mmsg of
-      Just msg@Message{..} | _msgLabel `elem` lbls && _msgTag `elem` tags -> return mmsg
+      Just msg@Message{..} | (Just _) <- find (\(_,lbl,t) -> _msgLabel == lbl && _msgTag == t) candidates ->
+                               return mmsg
                            | otherwise -> do
                                liftIO . atomically $ writeTChan inboxChan msg
                                return Nothing
@@ -167,9 +172,9 @@ spamInstance = 0
 
 echoBot :: SocketRunner ()
 echoBot = forever $ do
-  msg <- spinReceive [spamInstance] [""]
+  msg <- spinReceive [((), spamInstance, "")]
   liftIO $ print msg
 
 spamBot :: NodeID -> Int -> SocketRunner ()
 spamBot to body = forever $
-  NetSim.Language.send to spamInstance "" [body]
+  NetSim.Language.send () to spamInstance "" [body]
