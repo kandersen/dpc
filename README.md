@@ -96,7 +96,7 @@ where `AppName` is, e.g., `BatchCalculator` or `DistributedLocking`. Use digits 
 
 We have:
 
-* A *specification language* of RPCs. It is implemented in `Core.hs`. This is the language currently described in the "Overview" section of the paper. It has 'combinators' for RPCs and Broadcast messages, and is at the moment "interactively executable" i.e. simulations can be explored using the GUI. Technically, it is executable in any monad providing a backtracking binary choice operator.
+* A *specification language* of RPCs. It is implemented in `Core.hs`. This is the language currently described in the "Overview" section of the paper. It has 'combinators' for RPCs and Broadcast messages, and is at the moment "interactively executable" i.e. simulations can be explored using the GUI. Technically, it is executable in any monad providing a non-deterministic binary choice operator, used to model the interleaving of nodes and to non-deterministic choice in the specification.
 * A small library for describing predicates of the states in the aforementioned specification language. It is implemented in `Invariant.hs`. Provided an invariant, the GUI checks the validity of this invariant at every step of the exploration. This is so far not described in the paper, though I have tried outlining where it might fit in the second-to-last paragraph in the "Overview" section.
 * A simple monadic *programming language*, a DSL for Message passing, parallel execution and shared memory, and compound operations built from these primitives is found in `Language.hs`. In the paper, it is described in Section 3, "A DiSeL Monad".
 * The aforementioned language is given 3 notions of execution. They are in turn described in Section 3 of the paper.
@@ -115,8 +115,8 @@ We have:
 | SimpleClientServer | X             |           |                    |                | 
 | TwoPhaseCommit     | X             | X         | M                  |                | 
 
-X: Implemented
-M: Message Passing
-S: Shared memory
-P: Parallel Execution
-(P): Parallel version implemented in addition to sequential
+- _X: Implemented_
+- _M: Message Passing_
+- _S: Shared memory_
+- _P: Parallel Execution_
+- _(P): Parallel version implemented in addition to sequential_
