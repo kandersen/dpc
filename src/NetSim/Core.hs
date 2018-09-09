@@ -31,22 +31,26 @@ data Message = Message {
   _msgTo    :: NodeID,
   _msgLabel :: Label
   }
-  deriving (Show, Generic, Serialize)
+  deriving (Eq, Show, Generic, Serialize)
+
 
 data NodeState s = Running s
-                 | BlockingOn String [NodeID] ([[Int]] -> s)
+                 | BlockingOn s String [NodeID] ([[Int]] -> s)
 
 instance Show s => Show (NodeState s) where
   show (Running s) =
     "Running " ++ show s
-  show (BlockingOn rpc from _) =
-    unwords ["BlockingOn", rpc, show from, "<Continuation>"]
+  show (BlockingOn s rpc from _) =
+    unwords ["Blocking in state ", show s, " expecting ", rpc, show from, "<Continuation>"]
 
 --                 Protlet      Name   Initiator      Recipient(s)
 data Protlet f s = RPC          String (ClientStep s) (ServerStep s)
                  | ARPC         String (ClientStep s) (Receive s) (Send f s)
                  | Notification String (Send f s)     (Receive s)
-                 | Broadcast    String (Broadcast s)  (Receive s) (Send f s)
+                 | Broadcast    String (Broadcast s)  (Receive s) (Send f s) 
+--                 | BroadcastNotification String (
+--                 | Iterated Int (Protlet f s)
+--                 | Quorum String Fraction (Broadcast s) (Receive s) (Send f s)
 
 type ClientStep s = s -> Maybe (NodeID, [Int], [Int] -> s)
 type ServerStep s = [Int] -> s -> Maybe ([Int], s)
@@ -77,15 +81,15 @@ initializeNetwork ns protlets = Network {
 --
 --  Transitions
 --
-data Transition s = ReceivedMessage Label NodeID (NodeState s) [Message]
-                  | SentMessages    Label NodeID (NodeState s) [Message] [Message]
+data Transition s = ReceivedMessages Label NodeID [Message] (NodeState s) [Message]
+                  | SentMessages    Label NodeID [Message] (NodeState s) [Message]
                   deriving Show
 
 applyTransition :: Transition s -> (Network f s -> Network f s)
-applyTransition (ReceivedMessage label nodeID s' inbox') =
+applyTransition (ReceivedMessages label nodeID _ s' inbox') =
   update label nodeID s' inbox'
-applyTransition (SentMessages label nodeID s' inbox' msgs) =
-  foldr (.) id (deliver <$> msgs) .  update label nodeID s' inbox'
+applyTransition (SentMessages label nodeID msgs s' inbox') =
+  foldr (.) id (deliver <$> msgs) . update label nodeID s' inbox'
 
 update :: Label -> NodeID -> NodeState s -> [Message] -> (Network f s -> Network f s)
 update label nodeID s' inbox' network@Network{..} = network {
@@ -101,7 +105,7 @@ resolveBlock :: (Monad m, Alternative m) =>
   Label -> String -> NodeID -> [Message] -> [NodeID] -> ([[Int]] -> s) -> m (Transition s)
 resolveBlock label tag nodeID inbox responders k = do
   (responses, inbox') <- findAllResponses inbox responders
-  pure $ ReceivedMessage label nodeID (Running $ k (_msgBody <$> responses)) inbox'
+  pure $ ReceivedMessages label nodeID responses (Running $ k (_msgBody <$> responses)) inbox'
   where
     findAllResponses rest     [] = pure ([], rest)
     findAllResponses rest (r:rs) = do
@@ -114,7 +118,7 @@ tryClientStep :: (Alternative m) =>
   Label -> String -> ClientStep s -> NodeID -> s -> [Message] -> m (Transition s)
 tryClientStep label protlet step nodeID state inbox = case step state of
   Just (server, req, k) ->
-    pure $ SentMessages label nodeID (BlockingOn (protlet ++ "__Response") [server] (k . head)) inbox [buildRequest server req]
+    pure $ SentMessages label nodeID [buildRequest server req] (BlockingOn state (protlet ++ "__Response") [server] (k . head)) inbox
   _  -> empty
   where
     buildRequest receiver body = Message {
@@ -131,7 +135,7 @@ tryServerStep label protlet step nodeID state inbox = do
   (Message{..}, inbox') <- oneOfP isRequest inbox
   case step _msgBody state of
     Just (ans, state') ->
-      pure $ SentMessages label nodeID (Running state') inbox' [buildReply _msgFrom ans]
+      pure $ SentMessages label nodeID [buildReply _msgFrom ans] (Running state') inbox'
     _ -> empty
   where
     isRequest Message{..} = _msgTag == protlet ++ "__Request" && _msgLabel == label
@@ -151,7 +155,7 @@ tryReceive label tag receive nodeID state inbox = do
   (m, inbox') <- oneOfP isGood inbox
   case receive m state of
     Just state' ->
-      pure $ ReceivedMessage label nodeID (Running state') inbox'
+      pure $ ReceivedMessages label nodeID [m] (Running state') inbox'
     _ ->
       empty
   where
@@ -162,13 +166,13 @@ trySend :: (Monad m, Alternative m) =>
   Label -> Send m s -> NodeID -> s -> [Message] -> m (Transition s)
 trySend label send nodeID state inbox = do
   (msg , state') <- send nodeID state
-  pure $ SentMessages label nodeID (Running state') inbox [msg { _msgLabel = label }]
+  pure $ SentMessages label nodeID [msg { _msgLabel = label }] (Running state') inbox
 
 tryBroadcast :: (Alternative m) =>
   Label -> String -> Broadcast s -> NodeID -> s -> [Message] -> m (Transition s)
 tryBroadcast label name broadcast nodeID state inbox = case broadcast state of
   Just (casts, k) ->
-    pure $ SentMessages label nodeID (BlockingOn (name ++ "__Response") (fst <$> casts) k) inbox (buildRequest <$> casts)
+    pure $ SentMessages label nodeID (buildRequest <$> casts) (BlockingOn state (name ++ "__Response") (fst <$> casts) k) inbox
   _  -> empty
   where
     buildRequest (receiver, body) = Message {
@@ -203,7 +207,7 @@ possibleTransitions Network{..} = do
   let inbox = _inboxes ! nodeID
   (label, state) <- fst <$> oneOf (Map.toList $ _states ! nodeID)
   case state of
-    BlockingOn tag nodeIDs k ->
+    BlockingOn _ tag nodeIDs k ->
       resolveBlock label tag nodeID inbox nodeIDs k
     Running s -> do
       (plabel, protlet) <- fst <$> oneOf _protlets

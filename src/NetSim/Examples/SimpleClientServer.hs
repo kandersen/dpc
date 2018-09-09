@@ -3,9 +3,9 @@ module NetSim.Examples.SimpleClientServer where
 import           NetSim.Core
 
 data State = ClientInit NodeID
-            | ClientDone Int
-            | Server Int
-            deriving Show
+           | ClientDone Int
+           | Server Int
+           deriving Show
 
 queryServer :: Protlet f State
 queryServer = RPC "Query" cstep sstep

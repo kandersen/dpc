@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE LambdaCase #-}
 module NetSim.Examples.Paxos where
 
 import           NetSim.Core
@@ -8,6 +9,39 @@ import           NetSim.Language
 import           Control.Monad   (forM_)
 import qualified Data.Map        as Map
 import           Data.Maybe      (fromMaybe)
+
+-- Specification
+{-
+“only a single value is decided uniformly by all non-crashed nodes, 
+ it never changes in the future, and the decided value has been
+ proposed by some node participating in the protocol”
+-}
+
+-- Every state is indexed by the round and the currently accepted value.
+-- The accepted value is a sequence of ints for ease of programming
+
+data PState = Participant [NodeID] -- Other participants
+                          Int      -- Current round
+                          [Int]    -- Current value
+                          [Int]    -- Desired value
+                         
+propose :: Alternative f => Protlet f PState
+propose = Broadcast "propose" propositionCast acceptorReceive acceptorRespond
+  where
+    propositionCast = \case
+      Participant ps r v dv -> 
+        if v == dv
+          then Nothing
+          else Just (zip ps $ repeat (r : dv), proposerCont ps r v dv)
+    proposerCont ps r v dv responses = Participant ps r v dv
+    acceptorReceive msg = \case
+      Participant ps r v dv -> undefined
+    acceptorRespond proposer = \case
+      _ -> empty
+
+-- type Receive   s = Message -> s -> Maybe s
+-- type Send    f s = NodeID -> s -> f (Message, s)
+-- type Broadcast s = s -> Maybe ([(NodeID, [Int])], [(NodeID, [Int])] -> s)
 
 -- Round-Based Register
 

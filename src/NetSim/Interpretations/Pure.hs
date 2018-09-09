@@ -8,9 +8,7 @@ module NetSim.Interpretations.Pure where
 import           Data.List        (sortBy, find)
 import qualified Data.Map         as Map
 import           Data.Ord         (comparing)
-import Data.Maybe (isJust)
 import           NetSim.Core
-import           NetSim.Invariant
 import           NetSim.Language
 import           NetSim.Util
 
@@ -69,29 +67,39 @@ instance Par (DiSeL t) where
 
 -- Single-step evaluation. Takes a name for `this`, the
 -- message soup and the program under evaluation and produces
--- possibly a message to be sent, an updated message soup and
--- the continuation of the program.
-stepDiSeL :: NodeID -> [Message] -> DiSeL t a -> (Maybe Message, [Message], DiSeL t a)
+-- a network sideeffect description by a trace-action, 
+-- an updated message soup and the continuation of the program.
+data TraceAction t = InternalAction
+                   | SendAction NodeID t Message
+                   | ReceiveAction NodeID t Message    
+
+stepDiSeL :: NodeID -> [Message] -> DiSeL t a -> (TraceAction t, [Message], DiSeL t a)
 stepDiSeL    _ soup (Pure a) =
-  (Nothing, soup, Pure a)
-stepDiSeL nodeID soup (Send _ to label tag body k) =
-  (Just $ Message nodeID tag body to label, soup, k)
+  (InternalAction, soup, Pure a)
+stepDiSeL nodeID soup (Send t to label tag body k) =
+  let msg = Message nodeID tag body to label in
+  (SendAction nodeID t msg, msg : soup, k)
 stepDiSeL nodeID soup (Receive candidates k) =
-  case oneOfP isMessageForThis soup of
-    Nothing           -> (Nothing, soup, k Nothing)
-    Just (msg, soup') -> (Nothing, soup', k $ Just msg)
+  case findMessageAndTransitionInSoup soup of
+    Nothing              -> (InternalAction, soup,  k Nothing)
+    Just (t, msg, soup') -> (ReceiveAction nodeID t msg, soup', k $ Just msg)
   where
-    isMessageForThis Message{..} = isJust . find (\(_,lbl,t) -> _msgTo == nodeID && _msgLabel == lbl && _msgTag == t) $ candidates
+    findMessageAndTransitionInSoup [] = Nothing
+    findMessageAndTransitionInSoup (m : soup') =
+      case findInCandidates m of
+        Nothing -> (\(t, msg, soup'') -> (t, msg, m : soup'')) <$> findMessageAndTransitionInSoup soup'
+        Just (t, _, _) -> Just (t, m, soup')
+    findInCandidates Message{..} = find (\(t,lbl,tag) -> _msgTo == nodeID && _msgLabel == lbl && _msgTag == tag) candidates
 stepDiSeL nodeID soup (This k) =
-  (Nothing, soup, k nodeID)
+  (InternalAction, soup, k nodeID)
 stepDiSeL nodeID soup (Par mas k) =
   case check mas of
     Nothing ->
       let ((n, ma):mas') = mas in
-      let (mmsg, soup', ma') = stepDiSeL nodeID soup ma in
-      (mmsg, soup', Par (snoc mas' (n, ma')) k)
+      let (act, soup', ma') = stepDiSeL nodeID soup ma in
+      (act, soup', Par (snoc mas' (n, ma')) k)
     Just as ->
-      (Nothing, soup, k $ snd <$> sortBy (comparing fst) as)
+      (InternalAction, soup, k $ snd <$> sortBy (comparing fst) as)
   where
     check [] = Just []
     check ((n, ma):mas') = case ma of
@@ -99,33 +107,124 @@ stepDiSeL nodeID soup (Par mas k) =
       _      -> Nothing
 stepDiSeL nodeID soup (Bind ma fb) =
   case ma of
-    Pure a -> (Nothing, soup, fb a)
+    Pure a -> (InternalAction, soup, fb a)
     _ ->
-      let (mmsg, soup', ma') = stepDiSeL nodeID soup ma in
-      (mmsg, soup', Bind ma' fb)
+      let (act, soup', ma') = stepDiSeL nodeID soup ma in
+      (act, soup', Bind ma' fb)
 
+{-
+  Run a distributed program using fair, round-robin scheduling of message deliveries and process
+  steps. Produces a trace of send/receive transitions, messages sent and a trace of the entire system at
+  every step.
 
-runPure :: Configuration (DiSeL t) a -> [(Maybe Message, Configuration (DiSeL t) a)]
+  If a step yields (Just (n, t), Just m, c)
+  then, from the previous network state,
+    node n took spec transition t, 
+    in this a case a send, as it yielded message m,
+    producing a new network configuration c.
+-}               
+runPure :: Configuration (DiSeL t) a -> [(TraceAction t, Configuration (DiSeL t) a)]
 runPure initConf = go (cycle $ _confNodes initConf) initConf
   where
-    go :: [NodeID] -> Configuration (DiSeL t) a -> [(Maybe Message, Configuration (DiSeL t) a)]
-    go     [] conf = [(Nothing, conf)]
+    go :: [NodeID] -> Configuration (DiSeL t) a -> [(TraceAction t, Configuration (DiSeL t) a)]
+    go     [] conf = [(InternalAction, conf)]
     go (n:ns) conf = do
-      let (mmsg, soup', node') = stepDiSeL n (_confSoup conf) (_confNodeStates conf Map.! n)
+      let (act, soup', node') = stepDiSeL n (_confSoup conf) (_confNodeStates conf Map.! n)
       let schedule' = case node' of
-                        Pure _ -> filter (/= n) ns
+                        Pure _ -> filter (/= n) ns -- if done, no need to schedule this node again
                         _      -> ns
       let states' = Map.insert n node' (_confNodeStates conf)
-      let soup'' = case mmsg of
-                     Nothing  -> soup'
-                     Just msg -> msg : soup'
-      let conf' = conf { _confNodeStates = states', _confSoup = soup'' }
-      ((mmsg, conf'):) <$> go schedule' $ conf'
+      let conf' = conf { _confNodeStates = states', _confSoup = soup' }
+      ((act, conf'):) <$> go schedule' $ conf'
 
 --
 -- Model Checking
 --
 
+{-
+data Configuration m a = Configuration {
+  _confNodes      :: [NodeID],
+  _confNodeStates :: Map NodeID (m a),
+  _confSoup       :: [Message]
+  }
+  deriving Show 
+-}
 -- type Invariant m s a = forall f. (m, Label, Network f s) -> a
-modelcheck :: Invariant m s a -> Network f s -> DiSeL (Protlet f s)  a -> Bool
-modelcheck _ _ _ = True
+-- runPure :: Configuration (DiSeL t) a -> 
+modelcheckExecutionTrace :: Eq s => 
+     Network [] s -- ^ Initial specification configuration
+  -> [TraceAction (s, Message -> s)] -- ^Execution trace of running a pure DiSeL program, e.g. using runPure
+  -> IO Bool -- ^ Does the program communicate according to the spec.
+modelcheckExecutionTrace = stepSpec
+  where
+    stepSpec _ [] = 
+      -- The network halted its execution. 
+      -- if we got here, we stayed true to the specification at every step!
+      return True
+    stepSpec net (act:rest) = 
+      case act of
+        InternalAction -> 
+          -- Purely internal transition. The program performed a step without sending/receiving.
+          -- This cannot be observed in the spec.
+          -- So we simply continue with the next execution step:
+          stepSpec net rest
+        (ReceiveAction nodeid (pre, post) msg) -> do
+          -- Program succeeded with a receive. Nodeid received message msg
+          let protletInstance = _msgLabel msg
+          let currentState =  _states net Map.! nodeid Map.! protletInstance -- find current state 
+          -- check nodeid is in pre
+          if not (currentState `matches` pre)
+            then do
+              putStrLn "On receive, does not match precondition"
+              return False
+            else 
+              -- check nodeid can receive-step with some message m to post
+              case findMatchingReceive nodeid msg (post msg) (possibleTransitions net) of
+                Nothing -> do
+                  putStrLn "found no matching receive transition"
+                  return False
+                Just t -> 
+                  -- update the network and loop
+                  stepSpec (applyTransition t net) rest
+                  
+        (SendAction nodeid (pre, post) msg) -> do
+          -- program performed a send action. nodeid sent msg in state pre, is now in state post
+            let protletInstance = _msgLabel msg
+            let currentState = _states net Map.! nodeid Map.! protletInstance
+            if not (currentState `matches` pre)
+              then do
+                putStrLn "On send, does not match precondition"
+                return False
+              else 
+                -- check nodeid can receive-step with some message m to post
+                case findMatchingSend nodeid msg (post msg) (possibleTransitions net) of
+                  Nothing -> do
+                    putStrLn "found no matching receive transition"
+                    return False
+                  Just t -> 
+                    -- update the network and loop
+                    stepSpec (applyTransition t net) rest
+
+modelcheck :: Eq s => Network [] s -> Configuration (DiSeL (s, Message -> s)) a -> IO Bool
+modelcheck initNet = modelcheckExecutionTrace initNet . (fst <$>) . runPure
+
+matches :: Eq s => NodeState s -> s -> Bool
+matches (Running s) s' = s == s'
+matches (BlockingOn s _ _ _) s' = s == s'
+
+findMatchingReceive :: Eq s => NodeID -> Message -> s -> [Transition s] -> Maybe (Transition s)
+findMatchingReceive _ _ _ [] = Nothing
+findMatchingReceive nodeid msg s (SentMessages{}:ts) = findMatchingReceive nodeid msg s ts
+findMatchingReceive nodeid actualMsg actualState (t@(ReceivedMessages lbl nodeid' specMsgs specState _):ts) =
+  if _msgLabel actualMsg == lbl && nodeid == nodeid' && specState `matches` actualState && actualMsg `elem` specMsgs
+    then return t
+    else findMatchingReceive nodeid actualMsg actualState ts
+
+findMatchingSend :: Eq s => NodeID -> Message -> s -> [Transition s] -> Maybe (Transition s)
+findMatchingSend _ _ _ [] = Nothing
+findMatchingSend nodeid msg s (ReceivedMessages{}:ts) = findMatchingSend nodeid msg s ts
+findMatchingSend nodeid actualMsg actualState (t@(SentMessages lbl nodeid' specMsgs specState _):ts) =
+  if _msgLabel actualMsg == lbl && nodeid == nodeid' && specState `matches` actualState && actualMsg `elem` specMsgs
+    then return t
+    else findMatchingSend nodeid actualMsg actualState ts
+  

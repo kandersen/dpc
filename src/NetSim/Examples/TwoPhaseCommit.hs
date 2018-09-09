@@ -78,7 +78,7 @@ decide label = Broadcast "Decide" coordinatorBroadcast participantReceive partic
                                             pure $ ParticipantAbort coordinator
                                           | [1] <- _msgBody ->
                                             pure $ ParticipantCommit coordinator
-      ParticipantRespondedNo coordinator  |  [_] <- _msgBody ->
+      ParticipantRespondedNo coordinator  | [_] <- _msgBody ->
                                             pure $ ParticipantAbort coordinator
       _ -> empty
 

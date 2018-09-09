@@ -116,7 +116,7 @@ We have:
 | TwoPhaseCommit     | X             | X         | M                  |                | 
 
 - _X: Implemented_
-- _M: Message Passing_
-- _S: Shared memory_
-- _P: Parallel Execution_
+- _M: Implementation makes use of message passing_
+- _S: Implementation makes use of shared memory concurrency_
+- _P: Implementation makes use of arallel Execution_
 - _(P): Parallel version implemented in addition to sequential_

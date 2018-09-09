@@ -53,7 +53,7 @@ runningInState s node = forNode node inState
 blockingOn :: String -> NodeID -> ([Message] -> Invariant m s Bool) -> Invariant m s Bool
 blockingOn tag node responseHandler = forNode node inState
   where
-    inState (BlockingOn t waitingFor _, inbox) = pure (t == tag) <&&> 
+    inState (BlockingOn _ t waitingFor _, inbox) = pure (t == tag) <&&> 
       responseHandler (filter (\m -> _msgFrom m `elem` waitingFor && _msgTag m == t) inbox)
     inState _ = pure False
     
