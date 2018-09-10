@@ -16,6 +16,7 @@ import           NetSim.Util
 
 import           Data.Serialize      (Serialize)
 import           GHC.Generics        (Generic)
+import           Text.Show.Functions ()
 
 --
 -- Protocol Description Datatypes
@@ -48,6 +49,7 @@ data Protlet f s = RPC          String (ClientStep s) (ServerStep s)
                  | ARPC         String (ClientStep s) (Receive s) (Send f s)
                  | Notification String (Send f s)     (Receive s)
                  | Broadcast    String (Broadcast s)  (Receive s) (Send f s) 
+                 deriving (Show)
 --                 | BroadcastNotification String (
 --                 | Iterated Int (Protlet f s)
 --                 | Quorum String Fraction (Broadcast s) (Receive s) (Send f s)
@@ -66,6 +68,7 @@ data Network f s = Network {
   _inboxes  :: Map NodeID [Message],
   _protlets :: [(Label, Protlet f s)]
   }
+  deriving (Show)
 
 initializeNetwork :: [(NodeID,[(Label, s)])] -> [(Label, Protlet f s)] -> Network f s
 initializeNetwork ns protlets = Network {
