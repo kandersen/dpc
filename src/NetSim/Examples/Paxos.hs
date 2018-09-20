@@ -3,7 +3,8 @@
 {-# LANGUAGE LambdaCase #-}
 module NetSim.Examples.Paxos where
 
-import           NetSim.Core
+import           NetSim.Types
+import           NetSim.Specifications
 import           NetSim.Language
 
 import           Control.Monad   (forM_)
@@ -19,12 +20,10 @@ import           Data.Maybe      (fromMaybe)
 
 -- Every state is indexed by the round and the currently accepted value.
 -- The accepted value is a sequence of ints for ease of programming
+{-
+data PState = Acceptor
+            | Proposer
 
-data PState = Participant [NodeID] -- Other participants
-                          Int      -- Current round
-                          [Int]    -- Current value
-                          [Int]    -- Desired value
-                         
 propose :: Alternative f => Protlet f PState
 propose = Broadcast "propose" propositionCast acceptorReceive acceptorRespond
   where
@@ -157,3 +156,4 @@ initConf = Configuration {
         , (2, acceptor 0)
       ]
   }
+-}

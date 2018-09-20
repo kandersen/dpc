@@ -2,7 +2,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module NetSim.Examples.DistributedLocking where
 
-import           NetSim.Core
+import NetSim.Types
+import           NetSim.Specifications
 
 data State = ClientInit NodeID NodeID Int
            | ClientAcquired NodeID NodeID Int Int

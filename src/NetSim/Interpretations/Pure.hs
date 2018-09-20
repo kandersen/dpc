@@ -7,14 +7,17 @@
 module NetSim.Interpretations.Pure where
 import           Data.List        (sortBy, find)
 import qualified Data.Map         as Map
-import           Data.Map         (Map)
+import Data.Map (Map)
 import           Data.Ord         (comparing)
 
+import Control.Arrow
 import Control.Monad.State
 
-import           NetSim.Core
+import           NetSim.Types
+import           NetSim.Specifications
 import           NetSim.Language
 import           NetSim.Util
+
 
 -- Pure implementation.
 --
@@ -24,81 +27,98 @@ import           NetSim.Util
 -- The `Par` constructor embeds a 'schedule' into the list of subcomputations
 -- This allows a 'semi-stateful' interpretation of the AST,
 -- as can be seen in the small-step operational semantics implemented below.
-data DiSeL t a = Pure a
-               | forall b. Bind (DiSeL t b) (b -> DiSeL t a)
-               | Send t NodeID Label String [Int] (DiSeL t a)
-               | Receive [(t, Label, String)] (Maybe Message -> DiSeL t a)
-               | This (NodeID -> DiSeL t a)
-               | forall b. Par [(Int, DiSeL t b)] ([b] -> DiSeL t a)
+data DiSeL s a = Pure a
+               | forall b. Bind (DiSeL s b) (b -> DiSeL s a)
+               | Send NodeID Label String [Int] (DiSeL s a)
+               | Receive [(Label, String)] (Maybe Message -> DiSeL s a)
+               | This (NodeID -> DiSeL s a)
+               | forall b. Par [(Int, DiSeL s b)] ([b] -> DiSeL s a)
+               | EnactingServer (Protlet [] s) (DiSeL s a)
+               | EnactingClient (Protlet [] s) (DiSeL s a)
 
-instance (Show a, Show t) => Show (DiSeL t a) where
+instance (Show a, Show s) => Show (DiSeL s a) where
   show (Pure a) = "Pure " ++ show a
   show (Bind _ _) = "Bind ma <Continuation>"
-  show (Send _ nodeid label tag body k) = concat ["Send[", show label, ", ", tag, "] ", show body, show nodeid, "(", show k, ")"]
+  show (Send nodeid label tag body k) = concat ["Send[", show label, ", ", tag, "] ", show body, show nodeid, "(", show k, ")"]
   show (Receive candidates _) = concat ["Receive[", show candidates, "] <Continuation>"]
   show (This _) = "This <Continuation>"
   show (Par _ _) = "Par Schedule cont"
+  show (EnactingServer p k) = "EnactingServer[" ++ show p ++ "]" ++ show k
+  show (EnactingClient p k) = "EnactingClient[" ++ show p ++ "]" ++ show k
 
-instance Functor (DiSeL t) where
+
+instance Functor (DiSeL s) where
   fmap f (Pure a)                     = Pure (f a)
   fmap f (Bind ma fb)                 = Bind ma (fmap f . fb)
-  fmap f (Send t label tag body to k) = Send t label tag body to (fmap f k)
+  fmap f (Send label tag body to k)   = Send label tag body to (fmap f k)
   fmap f (Receive candidates k)       = Receive candidates (fmap f . k)
   fmap f (This k)                     = This (fmap f . k)
   fmap f (Par as k)                   = Par as (fmap f . k)
+  fmap f (EnactingServer p k)         = EnactingServer p (fmap f k)
+  fmap f (EnactingClient p k)         = EnactingClient p (fmap f k)
 
-instance Applicative (DiSeL t) where
+instance Applicative (DiSeL s) where
   pure = Pure
   (Pure f) <*> ma = fmap f ma
   (Bind ma fb) <*> mb = Bind ma ((<*> mb) . fb)
-  (Send t label tag body to k) <*> mb = Send t label tag body to (k <*> mb)
+  (Send label tag body to k) <*> mb = Send label tag body to (k <*> mb)
   (Receive candidates k) <*> mb = Receive candidates ((<*> mb) . k)
   (This k) <*> mb = This ((<*> mb) . k)
   (Par as k) <*> mb = Par as ((<*> mb) . k)
+  (EnactingServer p k) <*> mb = EnactingServer p (k <*> mb)
+  (EnactingClient p k) <*> mb = EnactingClient p (k <*> mb)
 
-instance Monad (DiSeL t) where
+instance Monad (DiSeL s) where
   (>>=) = Bind
 
-instance NetworkNode (DiSeL t) where
+instance NetworkNode (DiSeL s) where
   this = This pure
 
-instance MessagePassing t (DiSeL t) where
-  send t to label tag body = Send t to label tag body (pure ())
+instance MessagePassing (DiSeL s) where
+  send to label tag body = Send to label tag body (pure ())
   receive candidates = Receive candidates pure
 
-instance Par (DiSeL t) where
+instance ProtletAnnotations s (DiSeL s) where
+  enactingServer = EnactingServer
+  enactingClient = EnactingClient
+
+instance Par (DiSeL s) where
   par as = Par (zip [0..] as)
 
 -- Single-step evaluation. Takes a name for `this`, the
 -- message soup and the program under evaluation and produces
 -- a network sideeffect description by a trace-action, 
 -- an updated message soup and the continuation of the program.
-data TraceAction t = InternalAction
-                   | SendAction NodeID t Message
-                   | ReceiveAction NodeID t Message   
+data TraceAction s = InternalAction
+                   | SendAction NodeID Message
+                   | ReceiveAction NodeID Message   
+                   | ServerAction (Protlet [] s) (TraceAction s)
+                   | ClientAction (Protlet [] s) (TraceAction s)
 
-instance Show (TraceAction t) where
+instance Show s => Show (TraceAction s) where
   show InternalAction = "InternalAction"
-  show (SendAction nid _ msg) = concat ["Send[", show nid, "] ", show msg]
-  show (ReceiveAction nid _ msg) = concat ["Receive[", show nid, "] ", show msg]
+  show (SendAction nid msg) = concat ["Send[", show nid, "] ", show msg]
+  show (ReceiveAction nid msg) = concat ["Receive[", show nid, "] ", show msg]
+  show (ServerAction p t) = "ServerAction[" ++ show p ++ "]:" ++ show t
+  show (ClientAction p t) = "ClientAction[" ++ show p ++ "]:" ++ show t
 
-stepDiSeL :: NodeID -> [Message] -> DiSeL t a -> (TraceAction t, [Message], DiSeL t a)
+stepDiSeL :: NodeID -> [Message] -> DiSeL s a -> (TraceAction s, [Message], DiSeL s a)
 stepDiSeL    _ soup (Pure a) =
   (InternalAction, soup, Pure a)
-stepDiSeL nodeID soup (Send t to label tag body k) =
+stepDiSeL nodeID soup (Send to label tag body k) =
   let msg = Message nodeID tag body to label in
-  (SendAction nodeID t msg, msg : soup, k)
+  (SendAction nodeID msg, msg : soup, k)
 stepDiSeL nodeID soup (Receive candidates k) =
   case findMessageAndTransitionInSoup soup of
-    Nothing              -> (InternalAction, soup,  k Nothing)
-    Just (t, msg, soup') -> (ReceiveAction nodeID t msg, soup', k $ Just msg)
+    Nothing           -> (InternalAction, soup,  k Nothing)
+    Just (msg, soup') -> (ReceiveAction nodeID msg, soup', k $ Just msg)
   where
     findMessageAndTransitionInSoup [] = Nothing
     findMessageAndTransitionInSoup (m : soup') =
       case findInCandidates m of
-        Nothing -> (\(t, msg, soup'') -> (t, msg, m : soup'')) <$> findMessageAndTransitionInSoup soup'
-        Just (t, _, _) -> Just (t, m, soup')
-    findInCandidates Message{..} = find (\(_,lbl,tag) -> _msgTo == nodeID && _msgLabel == lbl && _msgTag == tag) candidates
+        Nothing -> second ((:) m) <$> findMessageAndTransitionInSoup soup'
+        Just _ -> Just (m, soup')
+    findInCandidates Message{..} = find (\(lbl,tag) -> _msgTo == nodeID && _msgLabel == lbl && _msgTag == tag) candidates
 stepDiSeL nodeID soup (This k) =
   (InternalAction, soup, k nodeID)
 stepDiSeL nodeID soup (Par mas k) =
@@ -120,6 +140,18 @@ stepDiSeL nodeID soup (Bind ma fb) =
     _ ->
       let (act, soup', ma') = stepDiSeL nodeID soup ma in
       (act, soup', Bind ma' fb)
+stepDiSeL nodeID soup (EnactingServer p ma) = 
+  case ma of
+    Pure a -> (InternalAction, soup, Pure a)
+    _ -> 
+      let (act, soup', ma') = stepDiSeL nodeID soup ma in
+      (ServerAction p act, soup', EnactingServer p ma')
+stepDiSeL nodeID soup (EnactingClient p ma) = 
+  case ma of
+    Pure a -> (InternalAction, soup, Pure a)
+    _ -> 
+      let (act, soup', ma') = stepDiSeL nodeID soup ma in
+      (ClientAction p act, soup', EnactingClient p ma')
 
 {-
   Run a distributed program using fair, round-robin scheduling of message deliveries and process
@@ -132,10 +164,10 @@ stepDiSeL nodeID soup (Bind ma fb) =
     in this a case a send, as it yielded message m,
     producing a new network configuration c.
 -}               
-runPure :: Configuration (DiSeL t) a -> [(TraceAction t, Configuration (DiSeL t) a)]
+runPure :: Configuration (DiSeL s) a -> [(TraceAction s, Configuration (DiSeL s) a)]
 runPure initConf = go (cycle $ _confNodes initConf) initConf
   where
-    go :: [NodeID] -> Configuration (DiSeL t) a -> [(TraceAction t, Configuration (DiSeL t) a)]
+--    go :: [NodeID] -> Configuration (DiSeL s) a -> [(TraceAction s, Configuration (DiSeL s) a)]
     go     [] conf = [(InternalAction, conf)]
     go (n:ns) conf = do
       let (act, soup', node') = stepDiSeL n (_confSoup conf) (_confNodeStates conf Map.! n)
@@ -160,14 +192,17 @@ data Configuration m a = Configuration {
 -}
 -- type Invariant m s a = forall f. (m, Label, Network f s) -> a
 -- runPure :: Configuration (DiSeL t) a -> 
-modelcheckExecutionTrace :: forall s. (Show s, Eq s) => 
+{-
+checkExecutionTrace :: forall s. (Show s, Eq s) => 
      Network [] s -- ^ Initial specification configuration
-  -> [TraceAction (s, Message -> s)] -- ^Execution trace of running a pure DiSeL program, e.g. using runPure
+  -> [TraceAction s] -- ^Execution trace of running a pure DiSeL program, e.g. using runPure
   -> IO Bool -- ^ Does the program communicate according to the spec.
-modelcheckExecutionTrace network trace = evalStateT (stepSpec network trace) Map.empty
+checkExecutionTrace network trace = evalStateT (stepSpec network trace) Map.empty
   where
-    stepSpec :: (Show s, Eq s) => Network [] s -> [TraceAction (s, Message -> s)] -> StateT (Map (NodeID,Label) (Message -> s)) IO Bool 
-    stepSpec _ [] = 
+    stepSpec :: (Show s, Eq s) => Network [] s -> [TraceAction s] -> StateT (Map (NodeID,Label) (Message -> s)) IO Bool 
+    stepSpec _ [] = do
+      blockers <- get
+      forM_ blockers (const $ return ())
       -- The network halted its execution. 
       -- if we got here, we stayed true to the specification at every step!
       return True
@@ -181,7 +216,7 @@ modelcheckExecutionTrace network trace = evalStateT (stepSpec network trace) Map
           -- This cannot be observed in the spec.
           -- So we simply continue with the next execution step:
           stepSpec net rest
-        (ReceiveAction nodeid (pre, post) msg) -> do
+        (ReceiveAction nodeid msg) -> do
 
           -- Program succeeded with a receive. Nodeid received message msg
           let protletInstance = _msgLabel msg
@@ -201,7 +236,7 @@ modelcheckExecutionTrace network trace = evalStateT (stepSpec network trace) Map
                   -- update the network and loop
                   stepSpec (applyTransition t net) rest
                   
-        (SendAction nodeid (pre, post) msg) -> do
+        (SendAction nodeid msg) -> do
           -- program performed a send action. nodeid sent msg in state pre, is now in state post
             let protletInstance = _msgLabel msg
             let currentState = _states net Map.! nodeid Map.! protletInstance
@@ -221,8 +256,8 @@ modelcheckExecutionTrace network trace = evalStateT (stepSpec network trace) Map
                     -- update the network and loop
                     stepSpec (applyTransition t net) rest
 
-modelcheck :: (Show s, Eq s) => Network [] s -> Configuration (DiSeL (s, Message -> s)) a -> IO Bool
-modelcheck initNet = modelcheckExecutionTrace initNet . (fst <$>) . runPure
+check :: (Show s, Eq s) => Network [] s -> Configuration (DiSeL (s, Message -> s)) a -> IO Bool
+check initNet = modelcheckExecutionTrace initNet . (fst <$>) . runPure
 
 matches :: Eq s => NodeState s -> s -> Bool
 matches (Running s) s' = s == s'
@@ -243,4 +278,4 @@ findMatchingSend nodeid actualMsg actualState (t@(SentMessages lbl nodeid' specM
   if _msgLabel actualMsg == lbl && nodeid == nodeid' && specState `matches` actualState && actualMsg `elem` specMsgs
     then return t
     else findMatchingSend nodeid actualMsg actualState ts
-  
+    -}

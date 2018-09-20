@@ -1,7 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module NetSim.Examples.Calculator.Client where
 
-import           NetSim.Core
+import NetSim.Types
 import           NetSim.Examples.Calculator.Calculator
 import           NetSim.Interpretations.WebSockets
 

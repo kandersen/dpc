@@ -3,11 +3,11 @@ module NetSim.Util(
   oneOf,
   snoc,
   groupsOf,
-  stepThrough
+  pickRandom
 ) where
 
 import Control.Applicative
-import Data.Foldable
+import System.Random
 
 oneOfP :: Alternative m => (a -> Bool) -> [a] -> m (a, [a])
 oneOfP _ [] = empty
@@ -28,7 +28,5 @@ groupsOf n xs = case splitAt n xs of
   (grp, []) -> [grp]
   (grp, xs') -> grp : groupsOf n xs'
 
-stepThrough :: (a -> String) -> [a] -> IO ()
-stepThrough pp = traverse_ (printAndAwait . pp)
-  where
-    printAndAwait x = putStrLn x >> getLine
+pickRandom :: [a] -> IO a
+pickRandom xs = (xs !!) <$> randomRIO (0, length xs - 1)

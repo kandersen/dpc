@@ -24,7 +24,7 @@ import           System.Socket.Type.Stream
 import           Control.Concurrent
 import           Control.Concurrent.STM
 
-import           NetSim.Core
+import           NetSim.Types
 import           NetSim.Language
 
 import           Lens.Micro.Mtl
@@ -59,8 +59,12 @@ newtype SocketRunnerT m a = SocketRunnerT {
 instance Monad m => NetworkNode (SocketRunnerT m) where
   this = _this <$> ask
 
-instance (MonadIO m, Monad m) => MessagePassing t (SocketRunnerT m) where
-  send _ to lbl tag body = do
+instance ProtletAnnotations s (SocketRunnerT m) where
+  enactingServer _ m = m
+  enactingClient _ m = m
+
+instance (MonadIO m, Monad m) => MessagePassing (SocketRunnerT m) where
+  send to lbl tag body = do
     thisID <- NetSim.Language.this
     let p = encode $ Message thisID tag body to lbl
     let n = BS.length p
@@ -73,7 +77,7 @@ instance (MonadIO m, Monad m) => MessagePassing t (SocketRunnerT m) where
     inboxChan <- view inbox
     mmsg <- liftIO . atomically $ tryReadTChan inboxChan
     case mmsg of
-      Just msg@Message{..} | (Just _) <- find (\(_,lbl,t) -> _msgLabel == lbl && _msgTag == t) candidates ->
+      Just msg@Message{..} | (Just _) <- find (\(lbl,t) -> _msgLabel == lbl && _msgTag == t) candidates ->
                                return mmsg
                            | otherwise -> do
                                liftIO . atomically $ writeTChan inboxChan msg
@@ -172,9 +176,9 @@ spamInstance = 0
 
 echoBot :: SocketRunner ()
 echoBot = forever $ do
-  msg <- spinReceive [((), spamInstance, "")]
+  msg <- spinReceive [(spamInstance, "")]
   liftIO $ print msg
 
 spamBot :: NodeID -> Int -> SocketRunner ()
 spamBot to body = forever $
-  NetSim.Language.send () to spamInstance "" [body]
+  NetSim.Language.send to spamInstance "" [body]

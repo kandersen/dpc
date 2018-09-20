@@ -3,10 +3,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE RecordWildCards     #-}
 module NetSim.Examples.Calculator.Calculator where
 
-import           NetSim.Core
+import NetSim.Types
+import           NetSim.Specifications
 import           NetSim.Language
 
 import qualified Data.Map        as Map
@@ -21,9 +21,9 @@ data S = ClientInit [Int]
        deriving (Show, Eq)
 
 compute :: Alternative f => NodeID -> ([Int] -> Int) -> Protlet f S
-compute server f = RPC "compute" clientSend serverStep
+compute server f = RPC "compute" clientStep serverStep
   where
-    clientSend = \case
+    clientStep = \case
       ClientInit args ->
         Just (server, args, ClientDone)
       _ -> Nothing
@@ -37,35 +37,53 @@ initNetwork = initializeNetwork nodes protlets
     addLabel = 0
     mulLabel = 1
     server = 0
-    nodes :: [(NodeID, [(NodeID, S)])]
     nodes = [ (server, [(addLabel, Server), (mulLabel, Server)])
             , (1, [(addLabel, ClientInit [1, 1])])
             ]
-    protlets :: Alternative f => [(NodeID, Protlet f S)]
     protlets = [(addLabel, compute server sum),
                 (mulLabel, compute server product)]
 
 
 --- Implementation
 
-polynomialServer :: (MessagePassing (S, Message -> S) m) => Label -> Label -> m a
-polynomialServer addInstance mulInstance = loop
+addServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Label -> m a
+addServer label = loop
   where
-    loop :: (MessagePassing (S, Message -> S) m) => m a
     loop = do
-      Message client _ args _ lbl <- spinReceive [((Server, \Message{} -> Server), addInstance, "compute__Request"), ((Server, const Server), mulInstance, "compute__Request")]
-      let response = if | lbl == addInstance -> sum args
-                        | lbl == mulInstance -> product args
-      send (Server, \Message{} -> Server) client lbl "compute__Response" [response]
+      nodeID <- this
+      enactingServer (compute nodeID sum) $ do
+        Message client _ args _ _ <- spinReceive [(label, "compute__Request")]
+        send client label "compute__Response" [sum args]
       loop
 
-parPolynomialServer :: (MessagePassing () m, Par m) => Label -> Label -> m a
-parPolynomialServer addInstance mulInstance = par [loop mulInstance product, loop addInstance sum] undefined
+mulServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Label -> m a
+mulServer label = loop
   where
-    loop label f = do
-      Message client _ args _ _ <- spinReceive [((), label, "compute__Request")]
-      send () client label "compute__Response" [f args]
-      loop label f
+    loop = do
+      nodeID <- this
+      enactingServer (compute nodeID product) $ do
+        Message client _ args _ _ <- spinReceive [(label, "compute__Request")]
+        send client label "compute__Response" [product args]
+      loop
+
+polynomialServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Label -> Label -> m a
+polynomialServer addLabel mulLabel = loop
+  where
+    loop = do
+      nodeID <- this
+      enactingServer (OneOf [compute nodeID product, compute nodeID sum]) $ do
+        Message client _ args _ msgLabel <- spinReceive [(addLabel, "compute__Request"), (mulLabel, "compute__Request")]
+        let response = if | msgLabel == addLabel -> sum args
+                          | msgLabel == mulLabel -> product args
+        send client msgLabel "compute__Response" [response]
+      loop
+
+parPolynomialServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m, Par m) => Label -> Label -> m a
+parPolynomialServer addLabel mulLabel = do
+  nodeID <- this
+  enactingServer (OneOf [compute nodeID product, compute nodeID sum]) $ 
+    par [mulServer mulLabel, addServer addLabel] undefined
+
 
 data Arith = Arith :+: Arith
            | Arith :*: Arith
@@ -85,33 +103,31 @@ instance Num Arith where
   abs = error "abs not implemented"
   signum = error "signum not implemented"
 
-polynomialClient :: (MessagePassing (S, Message -> S) m) => Label -> Label -> NodeID -> Arith -> m Int
+polynomialClient :: (ProtletAnnotations S m, MessagePassing m) => Label -> Label -> NodeID -> Arith -> m Int
 polynomialClient addLabel mulLabel server = go
   where
-    go :: (MessagePassing (S, Message -> S) m) => Arith -> m Int
     go (ConstInt n) = pure n
     go (l :+: r) = do
       l' <- go l
       r' <- go r
-      [ans] <- rpcCall (ClientInit [eval l, eval r], \Message{..} -> ClientDone _msgBody) addLabel "compute" [l', r'] server
+      [ans] <- enactingClient (compute server sum) $ rpcCall addLabel "compute" [l', r'] server
       return ans
     go (l :*: r) = do
       l' <- go l
       r' <- go r
-      [ans] <- rpcCall (ClientInit [eval l, eval r], \Message{..} -> ClientDone _msgBody) mulLabel "compute" [l', r'] server
+      [ans] <- enactingClient (compute server product) $ rpcCall mulLabel "compute" [l', r'] server
       return ans
 
-initConf :: (MessagePassing (S, Message -> S) m) => Configuration m Int
+initConf :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Configuration m Int
 initConf = Configuration {
   _confNodes = [serverID,1],
   _confSoup = [],
   _confNodeStates = Map.fromList [
---    (2, polynomialClient addLabel mulLabel serverID (40 + 3 * 4)),
-    (1, polynomialClient addLabel mulLabel serverID (1 + 1)),
+    (clientID, polynomialClient addLabel mulLabel serverID (1 + 1)),
     (serverID, polynomialServer addLabel mulLabel) ]
   }
   where
-    serverID, addLabel, mulLabel :: NodeID
+    clientID = 1
     serverID = 0
     addLabel = 0
     mulLabel = 1

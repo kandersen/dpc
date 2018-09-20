@@ -10,7 +10,8 @@ import           Control.Concurrent
 import           Control.Monad.Reader
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
-import           NetSim.Core
+
+import           NetSim.Types
 import           NetSim.Language
 --
 -- IO Implementation with real threads!
@@ -31,8 +32,8 @@ type Runner = RunnerT IO
 instance NetworkNode Runner where
   this = (\(nodeID, _, _) -> nodeID) <$> ask
 
-instance MessagePassing t Runner where
-  send _ to label tag body = do
+instance MessagePassing Runner where
+  send to label tag body = do
     (nodeID, _, channels) <- ask
     lift $ writeChan (channels Map.! to) (Message nodeID tag body to label)
   receive candidates = do

@@ -14,10 +14,13 @@ dependencies:
   - bytestring
   - cereal
   - stm
+  - random
 
 library:
   exposed-modules: 
-    - NetSim.Core
+    - NetSim.Types
+    - NetSim.Specifications
+    - NetSim.Language
     - NetSim.Examples.Calculator.Calculator
     - NetSim.Interpretations.WebSockets
   source-dirs: src

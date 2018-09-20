@@ -1,7 +1,8 @@
 {-# LANGUAGE RecordWildCards #-}
 module NetSim.PrettyPrint where
 
-import NetSim.Core
+import NetSim.Types
+import NetSim.Specifications
 import NetSim.Language
 import Data.Map as Map
 import Data.List
@@ -44,7 +45,7 @@ ppConf Configuration{..} = unlines $ ("Soup: " ++ show _confSoup) :
 ppDiSeL :: DiSeL t a -> String
 ppDiSeL (Pure _) = "Pure <val>"
 ppDiSeL (Bind ma _) = concat ["Bind(", ppDiSeL ma, ", <Cont>)"]
-ppDiSeL (Send _ to label tag body k) = concat ["Send[", show label, ", ", tag, "](", show body, ", ", show to, ", ", ppDiSeL k]
-ppDiSeL (Receive candidates _) = concat ["Receive[", show $ (\(_,l,t) -> (l, t)) <$> candidates, "}] <Cont>)"]
+ppDiSeL (Send to label tag body k) = concat ["Send[", show label, ", ", tag, "](", show body, ", ", show to, ", ", ppDiSeL k]
+ppDiSeL (Receive candidates _) = concat ["Receive[", show candidates, "}] <Cont>)"]
 ppDiSeL (This _) = "This <Cont>"
 ppDiSeL (Par mas _) = "Par [" ++ intercalate "," (ppDiSeL . snd <$> mas) ++ "]"

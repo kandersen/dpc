@@ -1,7 +1,7 @@
 
 module NetSim.Examples.Calculator.Server where
 
-import           NetSim.Core
+import           NetSim.Types
 import           NetSim.Examples.Calculator.Calculator
 import           NetSim.Interpretations.WebSockets
 

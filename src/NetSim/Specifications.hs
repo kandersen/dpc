@@ -1,38 +1,21 @@
 {-# LANGUAGE ApplicativeDo    #-}
-{-# LANGUAGE DeriveAnyClass   #-}
-{-# LANGUAGE DeriveGeneric    #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards  #-}
-module NetSim.Core (
-  module NetSim.Core,
+module NetSim.Specifications (
+  module NetSim.Specifications,
   module Control.Applicative
   ) where
 
 import           Control.Applicative
 import           Data.Map            (Map, (!))
 import qualified Data.Map            as Map
+import           Data.Foldable
 import           Lens.Micro
 import           NetSim.Util
 
-import           Data.Serialize      (Serialize)
-import           GHC.Generics        (Generic)
 import           Text.Show.Functions ()
 
---
--- Protocol Description Datatypes
---
-type NodeID = Int
-
-type Label = Int
-
-data Message = Message {
-  _msgFrom  :: NodeID,
-  _msgTag   :: String,
-  _msgBody  :: [Int],
-  _msgTo    :: NodeID,
-  _msgLabel :: Label
-  }
-  deriving (Eq, Show, Generic, Serialize)
+import NetSim.Types
 
 
 data NodeState s = Running s
@@ -49,7 +32,9 @@ data Protlet f s = RPC          String (ClientStep s) (ServerStep s)
                  | ARPC         String (ClientStep s) (Receive s) (Send f s)
                  | Notification String (Send f s)     (Receive s)
                  | Broadcast    String (Broadcast s)  (Receive s) (Send f s) 
+                 | OneOf        [Protlet f s]
                  deriving (Show)
+
 --                 | BroadcastNotification String (
 --                 | Iterated Int (Protlet f s)
 --                 | Quorum String Fraction (Broadcast s) (Receive s) (Send f s)
@@ -70,6 +55,17 @@ data Network f s = Network {
   }
   deriving (Show)
 
+data NetworkState global local = NetworkState {
+  _nsNodes :: [NodeID],
+  _nsLocalStates :: Map NodeID local,
+  _nsGlobalState :: global
+}
+
+-- type Network = NetworkState [(Label, Protlet f s)] (Map Label (NodeState s), [Message])
+-- type Configuration m a = NetworkState [Message] (m a)
+
+-- |Initialize a network with an association of nodes to protlet instance states, and 
+-- an association of protlet instsnaces to protlets. 
 initializeNetwork :: [(NodeID,[(Label, s)])] -> [(Label, Protlet f s)] -> Network f s
 initializeNetwork ns protlets = Network {
   _nodes = fst <$> ns,
@@ -85,7 +81,7 @@ initializeNetwork ns protlets = Network {
 --  Transitions
 --
 data Transition s = ReceivedMessages Label NodeID [Message] (NodeState s) [Message]
-                  | SentMessages    Label NodeID [Message] (NodeState s) [Message]
+                  | SentMessages     Label NodeID [Message] (NodeState s) [Message]
                   deriving Show
 
 applyTransition :: Transition s -> (Network f s -> Network f s)
@@ -203,7 +199,9 @@ stepProtlet nodeID state inbox (label, protlet) = case protlet of
     tryBroadcast label name broadcast nodeID state inbox <|>
     tryReceive label (name ++ "__Broadcast") receive nodeID state inbox <|>
     trySend label respond nodeID state inbox
+  OneOf protlets -> asum ((\p -> stepProtlet nodeID state inbox (label, p)) <$> protlets)
 
+-- Non-deterministically chose a transition.
 possibleTransitions :: (Monad f, Alternative f) => Network f s -> f (Transition s)
 possibleTransitions Network{..} = do
   nodeID <- fst <$> oneOf _nodes
@@ -218,5 +216,19 @@ possibleTransitions Network{..} = do
       then stepProtlet nodeID s inbox (plabel, protlet)
       else empty
 
+-- Non-deterministically advance a network, "chosing" amongst possible transitions.
 stepNetwork :: (Monad f, Alternative f) => Network f s -> f (Network f s)
 stepNetwork network = applyTransition <$> possibleTransitions network <*> pure network
+
+
+-- Simulate network execution using Random IO to pick transitions. Yields a trace of network states
+simulateNetworkIO :: Network [] s -> IO [Network [] s]
+simulateNetworkIO n = (n:) <$> (simulateNetworkIO =<< pickRandom (stepNetwork n))
+
+-- Simulate network execution using the list-monad to explore possible states. 
+-- Yields a list with the `nth` index containing states after `n` steps of execution.
+simulateNetworkTraces :: Network [] s -> [[Network [] s]]
+simulateNetworkTraces = go
+  where
+    go n = 
+      concatMap (n:) <$> (simulateNetworkTraces <$> stepNetwork n)

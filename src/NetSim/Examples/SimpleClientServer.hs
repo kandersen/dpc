@@ -1,6 +1,7 @@
 module NetSim.Examples.SimpleClientServer where
 
-import           NetSim.Core
+import NetSim.Types
+import           NetSim.Specifications
 
 data State = ClientInit NodeID
            | ClientDone Int

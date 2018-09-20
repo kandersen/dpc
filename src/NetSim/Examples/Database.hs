@@ -6,9 +6,12 @@ module NetSim.Examples.Database where
 import           Control.Concurrent
 import           Control.Monad
 import           Control.Monad.IO.Class
+
 import           Data.Map                            (Map, fromList)
 import qualified Data.Map                            as Map
-import           NetSim.Core
+
+import NetSim.Types
+import           NetSim.Specifications
 import           NetSim.Interpretations.SharedMemory
 import           NetSim.Language
 
@@ -116,18 +119,18 @@ writeDB db label val = do
     lock = (Map.! label) . _locks $ db
     cell = (Map.! label ). _cells $ db
 
-dbServer :: (Par m, SharedMemory m, MessagePassing () m) => DBState m -> m a
+dbServer :: (Par m, SharedMemory m, MessagePassing m) => DBState m -> m a
 dbServer db = par (oneCell <$> (Map.keys . _cells) db ) undefined
   where
     oneCell label = do
-      Message client tag msg _ _ <- spinReceive [((), label,"Read__Request"), ((), label, "Write__Request")]
+      Message client tag msg _ _ <- spinReceive [(label,"Read__Request"), (label, "Write__Request")]
       case (tag, msg) of
         ("Read__Request", []) -> do
             val <- readDB db label
-            send () client label "Read__Response" [val]
+            send client label "Read__Response" [val]
         ("Write__Request", [v]) -> do
             writeDB db label v
-            send () client label "Write__Response" [1]
+            send client label "Write__Response" [1]
       oneCell label
 
 seconds :: Int -> Int
@@ -149,7 +152,7 @@ takeSnap db = do
   forM_ (Map.elems . _locks $ db) readerExit
   return vs
 
-snapshotter' :: (Par m, SharedMemory m, MessagePassing () m) => Label -> DBState m -> m a
+snapshotter' :: (Par m, SharedMemory m, MessagePassing m) => Label -> DBState m -> m a
 snapshotter' label db = do
     firstSnap <- takeSnap db
     snapLoc <- allocRef firstSnap
@@ -169,30 +172,30 @@ snapshotter' label db = do
               lookForChanges loc
 
     messenger loc = do
-      Message client _ _ _ _ <- spinReceive [((), label, "Snap__Request")]
+      Message client _ _ _ _ <- spinReceive [(label, "Snap__Request")]
       ans <- readRef loc
-      send () client label "Snap__Response" ans
+      send client label "Snap__Response" ans
       messenger loc
 
-compositeServer :: (MessagePassing () m, Par m, SharedMemory m) => [Label] -> Label -> m a
+compositeServer :: (MessagePassing m, Par m, SharedMemory m) => [Label] -> Label -> m a
 compositeServer labels snapLabel = do
     db <- mkDB $ fromList (zip labels (repeat 0))
     par [snapshotter' snapLabel db, dbServer db] undefined
 
-clientIO :: (MessagePassing () m, MonadIO m) => Label -> NodeID -> m a
+clientIO :: (MessagePassing m, MonadIO m) => Label -> NodeID -> m a
 clientIO lbl server = do
-    [v] <- rpcCall () lbl "Read" [] server
+    [v] <- rpcCall lbl "Read" [] server
     liftIO $ putStr $ concat ["Cell[", show lbl, "] has value ", show v, "\nValue to write: " ]
     x <- liftIO $ read <$> getLine
-    [1] <- rpcCall () lbl "Write" [x] server
+    [1] <- rpcCall lbl "Write" [x] server
     clientIO lbl server
 
-clientPredeterminedVals :: (MessagePassing () m, MonadIO m) => Label -> NodeID -> [Int] -> m ()
+clientPredeterminedVals :: (MessagePassing m, MonadIO m) => Label -> NodeID -> [Int] -> m ()
 clientPredeterminedVals _ _ [] = liftIO $ putStrLn "Done!"
 clientPredeterminedVals lbl server (x:xs) = do
-    [v] <- rpcCall () lbl "Read" [] server
+    [v] <- rpcCall lbl "Read" [] server
     liftIO $ putStrLn $ concat ["Cell[", show lbl, "] has value ", show v, "\nValue to write: ", show x]
-    [1] <- rpcCall () lbl "Write" [x] server
+    [1] <- rpcCall lbl "Write" [x] server
     clientPredeterminedVals lbl server xs
 
 initConf :: Configuration Runner ()
