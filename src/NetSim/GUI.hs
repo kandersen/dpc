@@ -3,7 +3,7 @@
 
 module NetSim.GUI (
   runGUI,
-  runGUIWithoutInvariant
+  runGUIWithInvariant
   ) where
 
 import NetSim.Types
@@ -94,8 +94,8 @@ inputForm :: Int -> Form Int () ResourceName
 inputForm = newForm [(str "Choice: " <+>)
                        @@= editShowableField (lens id (flip const)) ChoiceSelection]
 
-runGUI :: Show s => Invariant m s Bool -> m -> Network [] s -> IO ()
-runGUI inv meta n = void $ defaultMain renderNetworkApp initialState
+runGUIWithInvariant :: Show s => Invariant m s Bool -> m -> Network [] s -> IO ()
+runGUIWithInvariant inv meta n = void $ defaultMain renderNetworkApp initialState
   where
     initialState = AppState {
       _metadata = meta,
@@ -105,5 +105,5 @@ runGUI inv meta n = void $ defaultMain renderNetworkApp initialState
       _form = inputForm 0
     }
 
-runGUIWithoutInvariant :: Show s => Network [] s -> IO ()
-runGUIWithoutInvariant = runGUI (const True) ()
+runGUI :: Show s => Network [] s -> IO ()
+runGUI = runGUIWithInvariant (const True) ()

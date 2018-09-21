@@ -71,7 +71,6 @@ Ideally, some of these case studies can build on others, as sub-modules, though 
 See `INSTRUCTIONS.md`.
 
 
-
 ## Taking Stock
 
 We have:

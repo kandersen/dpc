@@ -80,6 +80,7 @@ checkTrace inv m = go 0
 
 -- |Returns Just (n, m) if the nth trace is found in violation of the invariant after
 -- m steps. 
+{-
 checkTraces :: Invariant m s Bool -> m -> [[Network [] s]] -> Maybe (Int, Int)
 checkTraces inv m = go 0
   where
@@ -94,4 +95,4 @@ exhaustiveInvariantCheck inv m net = checkTraces inv m (simulateNetworkTraces ne
 
 boundedInvariantCheck :: Invariant m s Bool -> m -> Network [] s -> Int -> Maybe (Int, Int)
 boundedInvariantCheck inv m net bound = checkTraces inv m (take bound <$> simulateNetworkTraces net)
-
+-}

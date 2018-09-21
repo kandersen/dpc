@@ -10,6 +10,7 @@ import           NetSim.Specifications
 import           NetSim.Language
 
 import qualified Data.Map        as Map
+import Data.Map (Map)
 
 -- Example to demonstrate concurrency!
 
@@ -30,6 +31,9 @@ compute server f = RPC "compute" clientStep serverStep
 
     serverStep args Server = Just ([f args], Server)
 
+initStates :: Map NodeID S
+initStates = Map.fromList [(0, Server), (1, ClientInit [1,1]), (2, ClientInit [3,2])]
+
 initNetwork :: Alternative f => Network f S
 initNetwork = initializeNetwork nodes protlets
   where
@@ -43,9 +47,21 @@ initNetwork = initializeNetwork nodes protlets
     protlets = [(addLabel, compute server sum),
                 (mulLabel, compute server product)]
 
+simpleNetwork :: Alternative f => Network f S                
+simpleNetwork = initializeNetwork nodes protlets
+  where
+    server, client1, client2 :: NodeID
+    server = 0
+    client1 = 1
+    client2 = 2
+    nodes = [ (server, [(0, Server)])
+            , (client1, [(0, ClientInit [1, 1])])
+            , (client2, [(0, ClientInit [3, 2])])
+            ]
+
+    protlets = [(0, compute server sum)]
 
 --- Implementation
-
 addServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Label -> m a
 addServer label = loop
   where
@@ -84,7 +100,6 @@ parPolynomialServer addLabel mulLabel = do
   enactingServer (OneOf [compute nodeID product, compute nodeID sum]) $ 
     par [mulServer mulLabel, addServer addLabel] undefined
 
-
 data Arith = Arith :+: Arith
            | Arith :*: Arith
            | ConstInt Int
@@ -118,6 +133,12 @@ polynomialClient addLabel mulLabel server = go
       [ans] <- enactingClient (compute server product) $ rpcCall mulLabel "compute" [l', r'] server
       return ans
 
+addClient :: (ProtletAnnotations S m, MessagePassing m) => Int -> Int -> NodeID -> m Int
+addClient a b server = do
+  [ans] <- enactingClient (compute server sum) $ 
+    rpcCall 0 "compute" [a, b] server
+  return ans
+
 initConf :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Configuration m Int
 initConf = Configuration {
   _confNodes = [serverID,1],
@@ -132,5 +153,17 @@ initConf = Configuration {
     addLabel = 0
     mulLabel = 1
 
--- (fst <$> (take 7 $ runPure (NetSim.Examples.Calculator.Calculator.initConf :: Configuration (DiSeL (NetSim.Examples.Calculator.Calculator.S, Message -> NetSim.Examples.Calculator.Calculator.S)) Int)))
--- modelcheckExecutionTrace (NetSim.Examples.Calculator.Calculator.initNetwork) (fst <$> (take 2 $ runPure (NetSim.Examples.Calculator.Calculator.initConf :: Configuration (DiSeL (NetSim.Examples.Calculator.Calculator.S, Message -> NetSim.Examples.Calculator.Calculator.S)) Int)))
+simpleConf :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Configuration m Int
+simpleConf = Configuration {
+  _confNodes = [server, client1, client2],
+  _confSoup = [],
+  _confNodeStates = Map.fromList [
+          (client2, addClient 3 2 server)
+        , (client1, addClient 1 1 server)
+        , (server, addServer 0) 
+        ]
+  }
+  where
+    client2 = 2
+    client1 = 1
+    server = 0

@@ -9,6 +9,7 @@ dependencies:
   - microlens
   - microlens-th
   - microlens-mtl
+  - microlens-ghc
   - mtl
   - socket
   - bytestring
