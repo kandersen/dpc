@@ -20,7 +20,7 @@ $ stack repl netsim:lib
 ```
 Then run the simulator of the corresponding distributed application as follows:
 ```
-> runGUI NetSim.AppName.initNetwork
+> runGUI NetSim.Examples.AppName.initNetwork
 ```
 where `AppName` is, e.g., `Calculator.Calculator` or `DistributedLocking`. Use digits `1-N` to choose the next system move. Exit the interface with `<ESC>`.
 
