@@ -54,12 +54,12 @@ computeProtocol = ARPC "Compute" client serverRec serverSend
           }
 
 initNetwork :: Alternative f => SpecNetwork f PState
-initNetwork = initializeNetwork nodes protlets
+initNetwork = initializeNetwork nodeStates protlets
   where
     label :: NodeID
     label = 0
-    nodes :: [(NodeID, [(NodeID, PState)])]
-    nodes = [ (0, [(label, ServerBatch 3 [])])
+    nodeStates :: [(NodeID, [(NodeID, PState)])]
+    nodeStates = [ (0, [(label, ServerBatch 3 [])])
             , (1, [(label, ClientInit 1 0 2 40)])
             , (2, [(label, ClientInit 2 0 1 10)])
             , (3, [(label, ClientInit 3 0 10 100)])

@@ -15,7 +15,7 @@ import Data.Maybe (fromJust)
 import Control.Arrow
 import Control.Monad.State
 
-import Lens.Micro
+import Lens.Micro hiding (to)
 import Lens.Micro.Mtl
 import Lens.Micro.GHC()
 
@@ -173,8 +173,8 @@ stepDiSeL nodeID soup (EnactingClient p ma) =
 runPure :: ImplNetwork (DiSeL s) a -> [(TraceAction s, ImplNetwork (DiSeL s) a)]
 runPure initConf = go (cycle $ nodes initConf) initConf
   where
---    go :: [NodeID] -> Configuration (DiSeL s) a -> [(TraceAction s, Configuration (DiSeL s) a)]
-    go     [] conf = []
+    go :: [NodeID] -> ImplNetwork (DiSeL s) a -> [(TraceAction s, ImplNetwork (DiSeL s) a)]
+    go     []    _ = []
     go (n:ns) conf = do
       let (act, soup', node') = stepDiSeL n (_globalState conf) (_localStates conf Map.! n)
       let schedule' = case node' of
@@ -224,7 +224,7 @@ checkTrace initNetwork trace = case runStateT (go trace) (Init <$> initConf) of
     checkAction (ServerAction (RPC pName _ _) (SendAction nodeID msg)) = do
       vs <- fromJust <$> use (at nodeID)
       case vs of
-        SyncServerFor pName' client resp s' -> 
+        SyncServerFor _ client resp s' -> 
           if (_msgTo msg == client) && (_msgBody msg == resp) && (_msgTag msg == (pName ++ "__Response"))
             then at nodeID ?= Init s'
             else fail "The server response did not follow the protocol"
@@ -240,7 +240,7 @@ checkTrace initNetwork trace = case runStateT (go trace) (Init <$> initConf) of
               if _msgBody msg == body && _msgTo msg == server
                 then at nodeID ?= AwaitingResponseFrom pName server k
                 else fail . concat $ ["Inappropriate request initiating rpc ", pName]
-    checkAction (ClientAction (RPC pName clientStep _) (ReceiveAction nodeID msg)) = do
+    checkAction (ClientAction (RPC pName _ _) (ReceiveAction nodeID msg)) = do
       vs <- fromJust <$> use (at nodeID)
       case vs of 
         AwaitingResponseFrom pName' server k | pName == pName' ->

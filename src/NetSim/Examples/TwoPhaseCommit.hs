@@ -99,14 +99,14 @@ decide label = Broadcast "Decide" coordinatorBroadcast participantReceive partic
       }
 
 initNetwork :: Alternative f => SpecNetwork f State
-initNetwork = initializeNetwork nodes protlets
+initNetwork = initializeNetwork nodeStates protlets
   where
-    nodes :: [(NodeID, [(NodeID, State)])]
-    nodes = [ (0, [(label, CoordinatorInit [1,2,3])])
-            , (1, [(label, ParticipantInit)])
-            , (2, [(label, ParticipantInit)])
-            , (3, [(label, ParticipantInit)])
-            ]
+    nodeStates :: [(NodeID, [(NodeID, State)])]
+    nodeStates = [ (0, [(label, CoordinatorInit [1,2,3])])
+                 , (1, [(label, ParticipantInit)])
+                 , (2, [(label, ParticipantInit)])
+                 , (3, [(label, ParticipantInit)])
+                 ]
     protlets :: Alternative f => [(NodeID, Protlet f State)]
     protlets = [(label, prepare label), (label, decide label)]
     label :: NodeID

@@ -3,8 +3,6 @@ module NetSim.PrettyPrint where
 
 import NetSim.Types
 import NetSim.Specifications
-import NetSim.Language
-import Data.Map as Map
 import Data.List
 import NetSim.Interpretations.Pure
 

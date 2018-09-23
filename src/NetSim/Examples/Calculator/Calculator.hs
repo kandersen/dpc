@@ -35,29 +35,29 @@ initStates :: Map NodeID S
 initStates = Map.fromList [(0, Server), (1, ClientInit [1,1]), (2, ClientInit [3,2])]
 
 initNetwork :: Alternative f => SpecNetwork f S
-initNetwork = initializeNetwork nodes protlets
+initNetwork = initializeNetwork nodeStates protlets
   where
     addLabel, mulLabel, server :: NodeID
     addLabel = 0
     mulLabel = 1
     server = 0
-    nodes = [ (server, [(addLabel, Server), (mulLabel, Server)])
-            , (1, [(addLabel, ClientInit [1, 1])])
-            ]
+    nodeStates = [ (server, [(addLabel, Server), (mulLabel, Server)])
+                 , (1, [(addLabel, ClientInit [1, 1])])
+                 ]
     protlets = [(addLabel, compute server sum),
                 (mulLabel, compute server product)]
 
 simpleNetwork :: Alternative f => SpecNetwork f S                
-simpleNetwork = initializeNetwork nodes protlets
+simpleNetwork = initializeNetwork nodeStates protlets
   where
     server, client1, client2 :: NodeID
     server = 0
     client1 = 1
     client2 = 2
-    nodes = [ (server, [(0, Server)])
-            , (client1, [(0, ClientInit [1, 1])])
-            , (client2, [(0, ClientInit [3, 2])])
-            ]
+    nodeStates = [ (server, [(0, Server)])
+                 , (client1, [(0, ClientInit [1, 1])])
+                 , (client2, [(0, ClientInit [3, 2])])
+                 ]
 
     protlets = [(0, compute server sum)]
 
@@ -65,6 +65,7 @@ simpleNetwork = initializeNetwork nodes protlets
 addServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Label -> m a
 addServer label = loop
   where
+    loop :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => m a
     loop = do
       nodeID <- this
       enactingServer (compute nodeID sum) $ do
@@ -75,6 +76,7 @@ addServer label = loop
 mulServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Label -> m a
 mulServer label = loop
   where
+    loop :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => m a
     loop = do
       nodeID <- this
       enactingServer (compute nodeID product) $ do
@@ -85,6 +87,7 @@ mulServer label = loop
 polynomialServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Label -> Label -> m a
 polynomialServer addLabel mulLabel = loop
   where
+    loop :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => m a
     loop = do
       nodeID <- this
       enactingServer (OneOf [compute nodeID product, compute nodeID sum]) $ do
@@ -147,8 +150,10 @@ initConf = NetworkState {
     (serverID, polynomialServer addLabel mulLabel) ]
   }
   where
+    clientID, serverID :: NodeID
     clientID = 1
     serverID = 0
+    addLabel, mulLabel :: Label
     addLabel = 0
     mulLabel = 1
 
@@ -162,6 +167,7 @@ simpleConf = NetworkState {
         ]
   }
   where
+    server, client1, client2 :: NodeID
     client2 = 2
     client1 = 1
     server = 0

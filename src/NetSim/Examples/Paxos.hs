@@ -1,7 +1,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE LambdaCase #-}
+--{-# LANGUAGE LambdaCase #-}
 module NetSim.Examples.Paxos where
+{-
 
 import           NetSim.Types
 import           NetSim.Specifications
@@ -20,7 +21,6 @@ import           Data.Maybe      (fromMaybe)
 
 -- Every state is indexed by the round and the currently accepted value.
 -- The accepted value is a sequence of ints for ease of programming
-{-
 data PState = Acceptor
             | Proposer
 

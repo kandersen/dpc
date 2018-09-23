@@ -30,7 +30,7 @@ forNode nodeID p (meta, label, network) = p (instanceState, mailbox) (meta, labe
     instanceState = nodeStates Map.! label
 
 forNodes :: [NodeID] -> (NodeID -> Invariant m s Bool) -> Invariant m s Bool
-forNodes nodes p = and . sequence (p <$> nodes)
+forNodes nodeIDs p = and . sequence (p <$> nodeIDs)
 
 noOutstandingMessagesBetween :: NodeID -> NodeID -> Invariant m s Bool
 noOutstandingMessagesBetween a b = 
