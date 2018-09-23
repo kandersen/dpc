@@ -115,7 +115,7 @@ verifyToken = RPC "Verify" clientStep serverStep
         pure ([if heldBy == token then 1 else 0], state)
       _ -> empty
 
-initNetwork :: Alternative f => Network f State
+initNetwork :: Alternative f => SpecNetwork f State
 initNetwork = initializeNetwork nodes protlets
   where
     nodes :: [(NodeID, [(NodeID, State)])]

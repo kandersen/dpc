@@ -98,7 +98,7 @@ decide label = Broadcast "Decide" coordinatorBroadcast participantReceive partic
       _msgLabel = label
       }
 
-initNetwork :: Alternative f => Network f State
+initNetwork :: Alternative f => SpecNetwork f State
 initNetwork = initializeNetwork nodes protlets
   where
     nodes :: [(NodeID, [(NodeID, State)])]
@@ -122,7 +122,6 @@ data TPCMetaData = TPCMetaData {
   _coordinator  :: NodeID,
   _participants :: [NodeID]
   }
-
 
 -- Invariant Utilities
 type TPCInv = Invariant TPCMetaData State Bool

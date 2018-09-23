@@ -198,11 +198,10 @@ clientPredeterminedVals lbl server (x:xs) = do
     [1] <- rpcCall lbl "Write" [x] server
     clientPredeterminedVals lbl server xs
 
-initConf :: Configuration Runner ()
-initConf = Configuration {
-    _confSoup = [],
-    _confNodes = [0, 1],
-    _confNodeStates = fromList [
+initConf :: ImplNetwork Runner ()
+initConf = NetworkState {
+    _globalState = [],
+    _localStates = fromList [
       (1, clientIO 3 serverID),
       (serverID, compositeServer instances 47)
     ]
@@ -210,3 +209,5 @@ initConf = Configuration {
   where
     serverID = 0 :: Label
     instances = [0..5] :: [Label]
+
+  

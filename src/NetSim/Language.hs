@@ -5,7 +5,6 @@
 module NetSim.Language where
 
 import           Data.Foldable
-import           Data.Map      (Map)
 import           Data.Maybe    (isJust)
 
 import NetSim.Types
@@ -78,10 +77,5 @@ broadcast = broadcastQuorom (1 :: Double)
 ---
 -- Network description
 --
-data Configuration m a = Configuration {
-  _confNodes      :: [NodeID],
-  _confNodeStates :: Map NodeID (m a),
-  _confSoup       :: [Message]
-  }
-  deriving Show
 
+type ImplNetwork m a = NetworkState [Message] (m a)

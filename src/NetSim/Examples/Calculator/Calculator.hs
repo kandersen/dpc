@@ -34,7 +34,7 @@ compute server f = RPC "compute" clientStep serverStep
 initStates :: Map NodeID S
 initStates = Map.fromList [(0, Server), (1, ClientInit [1,1]), (2, ClientInit [3,2])]
 
-initNetwork :: Alternative f => Network f S
+initNetwork :: Alternative f => SpecNetwork f S
 initNetwork = initializeNetwork nodes protlets
   where
     addLabel, mulLabel, server :: NodeID
@@ -47,7 +47,7 @@ initNetwork = initializeNetwork nodes protlets
     protlets = [(addLabel, compute server sum),
                 (mulLabel, compute server product)]
 
-simpleNetwork :: Alternative f => Network f S                
+simpleNetwork :: Alternative f => SpecNetwork f S                
 simpleNetwork = initializeNetwork nodes protlets
   where
     server, client1, client2 :: NodeID
@@ -139,11 +139,10 @@ addClient a b server = do
     rpcCall 0 "compute" [a, b] server
   return ans
 
-initConf :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Configuration m Int
-initConf = Configuration {
-  _confNodes = [serverID,1],
-  _confSoup = [],
-  _confNodeStates = Map.fromList [
+initConf :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => ImplNetwork m Int
+initConf = NetworkState {
+  _globalState = [],
+  _localStates = Map.fromList [
     (clientID, polynomialClient addLabel mulLabel serverID (1 + 1)),
     (serverID, polynomialServer addLabel mulLabel) ]
   }
@@ -153,11 +152,10 @@ initConf = Configuration {
     addLabel = 0
     mulLabel = 1
 
-simpleConf :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Configuration m Int
-simpleConf = Configuration {
-  _confNodes = [server, client1, client2],
-  _confSoup = [],
-  _confNodeStates = Map.fromList [
+simpleConf :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => ImplNetwork m Int
+simpleConf = NetworkState {
+  _globalState = [],
+  _localStates = Map.fromList [
           (client2, addClient 3 2 server)
         , (client1, addClient 1 1 server)
         , (server, addServer 0) 

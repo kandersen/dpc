@@ -170,18 +170,18 @@ stepDiSeL nodeID soup (EnactingClient p ma) =
     in this a case a send, as it yielded message m,
     producing a new network configuration c.
 -}               
-runPure :: Configuration (DiSeL s) a -> [(TraceAction s, Configuration (DiSeL s) a)]
-runPure initConf = go (cycle $ _confNodes initConf) initConf
+runPure :: ImplNetwork (DiSeL s) a -> [(TraceAction s, ImplNetwork (DiSeL s) a)]
+runPure initConf = go (cycle $ nodes initConf) initConf
   where
 --    go :: [NodeID] -> Configuration (DiSeL s) a -> [(TraceAction s, Configuration (DiSeL s) a)]
     go     [] conf = []
     go (n:ns) conf = do
-      let (act, soup', node') = stepDiSeL n (_confSoup conf) (_confNodeStates conf Map.! n)
+      let (act, soup', node') = stepDiSeL n (_globalState conf) (_localStates conf Map.! n)
       let schedule' = case node' of
                         Pure _ -> filter (/= n) ns -- if done, no need to schedule this node again
                         _      -> ns
-      let states' = Map.insert n node' (_confNodeStates conf)
-      let conf' = conf { _confNodeStates = states', _confSoup = soup' }
+      let states' = Map.insert n node' (_localStates conf)
+      let conf' = conf { _localStates = states', _globalState = soup' }
       ((act, conf'):) <$> go schedule' $ conf'
 
 --
@@ -191,17 +191,19 @@ runPure initConf = go (cycle $ _confNodes initConf) initConf
 type ValidationError = String
 
 data ValidationState s = Init s
-                       | ServerFor String NodeID [Int] s
+                       | SyncServerFor String NodeID [Int] s
                        | AwaitingResponseFrom String NodeID ([Int] -> s)
                       deriving (Show)
 
 type ValidationM s a = StateT (Map NodeID (ValidationState s)) (Either ValidationError) a
 
-checkTrace :: Show s => Map NodeID s -> [TraceAction s] -> Either ValidationError ()
-checkTrace initConf trace = case runStateT (go trace) (Init <$> initConf) of
+checkTrace :: Show s => SpecNetwork [] s -> [TraceAction s] -> Either ValidationError ()
+checkTrace initNetwork trace = case runStateT (go trace) (Init <$> initConf) of
   Left e -> Left e
   Right ((), _) -> Right ()
   where
+    initConf = Map.fromList [ (k, s) | (k, (v,_)) <- Map.assocs $ _localStates initNetwork, Running s <- [v Map.! 0]]
+
     go :: Show s => [TraceAction s] -> ValidationM s ()
     go ts = sequence_ $ checkAction <$> ts
 
@@ -218,11 +220,11 @@ checkTrace initConf trace = case runStateT (go trace) (Init <$> initConf) of
           case serverStep (_msgBody msg) s of
             Nothing -> fail . concat $ ["Expecting node ", show nodeID, " to serve ", pName]
             Just (resp, s') -> 
-              at nodeID ?= ServerFor pName (_msgFrom msg) resp s'
+              at nodeID ?= SyncServerFor pName (_msgFrom msg) resp s'
     checkAction (ServerAction (RPC pName _ _) (SendAction nodeID msg)) = do
       vs <- fromJust <$> use (at nodeID)
       case vs of
-        ServerFor pName' client resp s' -> 
+        SyncServerFor pName' client resp s' -> 
           if (_msgTo msg == client) && (_msgBody msg == resp) && (_msgTag msg == (pName ++ "__Response"))
             then at nodeID ?= Init s'
             else fail "The server response did not follow the protocol"
@@ -250,105 +252,3 @@ checkTrace initConf trace = case runStateT (go trace) (Init <$> initConf) of
     checkAction (ClientAction _ (InternalAction _)) = return ()
     
     checkAction act = fail . concat $ ["Unimplemented trace action", show act]
-
-
-
-
-
-{-
-data Configuration m a = Configuration {
-  _confNodes      :: [NodeID],
-  _confNodeStates :: Map NodeID (m a),
-  _confSoup       :: [Message]
-  }
-  deriving Show 
--}
--- type Invariant m s a = forall f. (m, Label, Network f s) -> a
--- runPure :: Configuration (DiSeL t) a -> 
-{-
-checkExecutionTrace :: forall s. (Show s, Eq s) => 
-     Network [] s -- ^ Initial specification configuration
-  -> [TraceAction s] -- ^Execution trace of running a pure DiSeL program, e.g. using runPure
-  -> IO Bool -- ^ Does the program communicate according to the spec.
-checkExecutionTrace network trace = evalStateT (stepSpec network trace) Map.empty
-  where
-    stepSpec :: (Show s, Eq s) => Network [] s -> [TraceAction s] -> StateT (Map (NodeID,Label) (Message -> s)) IO Bool 
-    stepSpec _ [] = do
-      blockers <- get
-      forM_ blockers (const $ return ())
-      -- The network halted its execution. 
-      -- if we got here, we stayed true to the specification at every step!
-      return True
-    stepSpec net (act:rest) = do
-      lift $ putStr "Current network:\n\t"
-      lift $ print net
-      lift $ putStrLn $ "\tPerforming " ++ show act
-      case act of
-        InternalAction -> 
-         -- Purely internal transition. The program performed a step without sending/receiving.
-          -- This cannot be observed in the spec.
-          -- So we simply continue with the next execution step:
-          stepSpec net rest
-        (ReceiveAction nodeid msg) -> do
-
-          -- Program succeeded with a receive. Nodeid received message msg
-          let protletInstance = _msgLabel msg
-          let currentState =  _states net Map.! nodeid Map.! protletInstance -- find current state 
-          -- check nodeid is in pre
-          if not (currentState `matches` pre)
-            then do
-              lift $ putStrLn "On receive, does not match precondition"
-              return False
-            else 
-              -- check nodeid can receive-step with some message m to post
-              case findMatchingReceive nodeid msg (post msg) (possibleTransitions net) of
-                Nothing -> do
-                  lift $ putStrLn "found no matching receive transition"
-                  return False
-                Just t -> 
-                  -- update the network and loop
-                  stepSpec (applyTransition t net) rest
-                  
-        (SendAction nodeid msg) -> do
-          -- program performed a send action. nodeid sent msg in state pre, is now in state post
-            let protletInstance = _msgLabel msg
-            let currentState = _states net Map.! nodeid Map.! protletInstance
-            if not (currentState `matches` pre)
-              then do
-                lift $ putStrLn "On send, does not match precondition"
-                return False
-              else do
-                -- check nodeid can receive-step with some message m to post
-                let nextState = post msg
-                lift $ putStrLn . concat $ ["\tTransitioning ", show nodeid, " to ", show nextState]
-                case findMatchingSend nodeid msg nextState (possibleTransitions net) of
-                  Nothing -> do
-                    lift $ putStrLn "found no matching send transition"
-                    return False
-                  Just t -> 
-                    -- update the network and loop
-                    stepSpec (applyTransition t net) rest
-
-check :: (Show s, Eq s) => Network [] s -> Configuration (DiSeL (s, Message -> s)) a -> IO Bool
-check initNet = modelcheckExecutionTrace initNet . (fst <$>) . runPure
-
-matches :: Eq s => NodeState s -> s -> Bool
-matches (Running s) s' = s == s'
-matches (BlockingOn s _ _ _) s' = s == s'
-
-findMatchingReceive :: Eq s => NodeID -> Message -> s -> [Transition s] -> Maybe (Transition s)
-findMatchingReceive _ _ _ [] = Nothing
-findMatchingReceive nodeid msg s (SentMessages{}:ts) = findMatchingReceive nodeid msg s ts
-findMatchingReceive nodeid actualMsg actualState (t@(ReceivedMessages lbl nodeid' specMsgs specState _):ts) =
-  if _msgLabel actualMsg == lbl && nodeid == nodeid' && specState `matches` actualState && actualMsg `elem` specMsgs
-    then return t
-    else findMatchingReceive nodeid actualMsg actualState ts
-
-findMatchingSend :: Eq s => NodeID -> Message -> s -> [Transition s] -> Maybe (Transition s)
-findMatchingSend _ _ _ [] = Nothing
-findMatchingSend nodeid msg s (ReceivedMessages{}:ts) = findMatchingSend nodeid msg s ts
-findMatchingSend nodeid actualMsg actualState (t@(SentMessages lbl nodeid' specMsgs specState _):ts) =
-  if _msgLabel actualMsg == lbl && nodeid == nodeid' && specState `matches` actualState && actualMsg `elem` specMsgs
-    then return t
-    else findMatchingSend nodeid actualMsg actualState ts
-    -}

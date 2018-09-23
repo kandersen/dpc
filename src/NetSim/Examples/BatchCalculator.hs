@@ -53,7 +53,7 @@ computeProtocol = ARPC "Compute" client serverRec serverSend
           _msgLabel = undefined
           }
 
-initNetwork :: Alternative f => Network f PState
+initNetwork :: Alternative f => SpecNetwork f PState
 initNetwork = initializeNetwork nodes protlets
   where
     label :: NodeID
@@ -81,15 +81,14 @@ calculatorClient label a b server = do
   [x] <- rpcCall label "Compute" [a, b] server
   return x
 
-calcConfiguration :: MessagePassing m => Configuration m Int
-calcConfiguration = Configuration {
-  _confNodes = [0, 1, 2],
-  _confNodeStates = Map.fromList [
+calcConfiguration :: MessagePassing m => ImplNetwork m Int
+calcConfiguration = NetworkState {
+  _localStates = Map.fromList [
                         (0, calculatorServer label)
                       , (1, calculatorClient label 40 2 0)
                       , (2, calculatorClient label 100 11 0)
                       ],
-  _confSoup = []
+  _globalState = []
   }
   where
     label :: NodeID

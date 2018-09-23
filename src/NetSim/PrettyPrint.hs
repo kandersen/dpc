@@ -32,15 +32,8 @@ ppProtocol (Notification name _ _) =
 ppProtocol (Broadcast name _ _ _) =
     unwords [ "BroadcastQourom(", name, ")" ]
 
-ppNetwork :: (s -> String) -> Network m s -> String
-ppNetwork _ _ = "Network"
-
-ppConf :: (Show a, Show t) => Configuration (DiSeL t) a -> String
-ppConf Configuration{..} = unlines $ ("Soup: " ++ show _confSoup) :
-   [ concat [show nodeid, ": ", ppDiSeL' state] | (nodeid, state) <- Map.toList _confNodeStates ]
-  where
-    ppDiSeL' (Pure a) = "Returned " ++ show a
-    ppDiSeL' a = ppDiSeL a
+ppNetworkState :: (g -> String) -> (l -> String) -> NetworkState g l -> String
+ppNetworkState = undefined
 
 ppDiSeL :: DiSeL t a -> String
 ppDiSeL (Pure _) = "Pure <val>"

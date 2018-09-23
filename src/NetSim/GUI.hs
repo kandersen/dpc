@@ -29,7 +29,7 @@ data ResourceName = ChoiceSelection
                   deriving (Show, Eq, Ord)
 
 data AppState m s = AppState {
-  _network :: Network [] s,
+  _network :: SpecNetwork [] s,
   _transitions :: [Transition s],
   _form :: Form Int () ResourceName,
   _metadata :: m,
@@ -73,9 +73,7 @@ renderNetwork AppState{..} = return $
   withBorderStyle unicode $ 
         border (str "Invariant satisfied: " <+> (str . show $ _invariant (_metadata, 0, _network)))
     <=> vBox (vCenter . hBox <$> groupsOf 2 [ center . renderNode $ (nodeID, state, inbox) |
-                                                                    (nodeID, state) <- Map.toList $ _states _network,
-                                                                    (nodeID', inbox) <- Map.toList $ _inboxes _network,
-                                                                    nodeID == nodeID' ])
+                                                                    (nodeID, (state,inbox)) <- Map.toList $ _localStates _network])
     <=> borderWithLabel (str "Choices") 
           (vBox (fmap (str . show) _transitions))
     <=> borderWithLabel (str "Make a choice by pressing enter while the field reads <n> for 1 to # of options")
@@ -94,7 +92,7 @@ inputForm :: Int -> Form Int () ResourceName
 inputForm = newForm [(str "Choice: " <+>)
                        @@= editShowableField (lens id (flip const)) ChoiceSelection]
 
-runGUIWithInvariant :: Show s => Invariant m s Bool -> m -> Network [] s -> IO ()
+runGUIWithInvariant :: Show s => Invariant m s Bool -> m -> SpecNetwork [] s -> IO ()
 runGUIWithInvariant inv meta n = void $ defaultMain renderNetworkApp initialState
   where
     initialState = AppState {
@@ -105,5 +103,5 @@ runGUIWithInvariant inv meta n = void $ defaultMain renderNetworkApp initialStat
       _form = inputForm 0
     }
 
-runGUI :: Show s => Network [] s -> IO ()
+runGUI :: Show s => SpecNetwork [] s -> IO ()
 runGUI = runGUIWithInvariant (const True) ()

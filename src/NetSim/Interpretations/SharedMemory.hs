@@ -67,9 +67,9 @@ instance Par Runner where
         a <- liftIO $ takeMVar v
         (a:) <$> awaitThreads vs
 
-runNetworkIO :: Configuration Runner a -> IO [(NodeID, a)]
+runNetworkIO :: ImplNetwork Runner a -> IO [(NodeID, a)]
 runNetworkIO conf = do
-  let network = Map.toList $ _confNodeStates conf
+  let network = Map.toList $ _localStates conf
   envs <- sequence $ do
     (nodeID, code) <- network
     return $ do

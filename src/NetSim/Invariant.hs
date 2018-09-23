@@ -9,12 +9,12 @@ import qualified Data.Map as Map
 import Data.List (find)
 import Data.Maybe (isJust)
 
-type Invariant m s a = forall f. (m, Label, Network f s) -> a
+type Invariant m s a = forall f. (m, Label, SpecNetwork f s) -> a
 
-(<||>) :: ((m, Label, Network f s) -> Bool) -> ((m, Label, Network f s) -> Bool) -> ((m, Label, Network f s) -> Bool)
+(<||>) :: ((m, Label, SpecNetwork f s) -> Bool) -> ((m, Label, SpecNetwork f s) -> Bool) -> ((m, Label, SpecNetwork f s) -> Bool)
 l <||> r = (||) <$> l <*> r
 
-foldOr :: [(m, Label, Network f s) -> Bool] -> (m, Label, Network f s) -> Bool
+foldOr :: [(m, Label, SpecNetwork f s) -> Bool] -> (m, Label, SpecNetwork f s) -> Bool
 foldOr = foldr1 (<||>)
 
 (<&&>) :: Invariant m s Bool -> Invariant m s Bool -> Invariant m s Bool
@@ -24,9 +24,10 @@ noInvariant :: Invariant m s Bool
 noInvariant = const True
 
 forNode :: NodeID -> ((NodeState s, [Message]) -> Invariant m s Bool) -> Invariant m s Bool
-forNode nodeID p (meta, label, network) = p node (meta, label, network)
+forNode nodeID p (meta, label, network) = p (instanceState, mailbox) (meta, label, network)
   where
-    node = ((_states network Map.! nodeID) Map.! label, _inboxes network Map.! nodeID)
+    (nodeStates, mailbox) = _localStates network Map.! nodeID
+    instanceState = nodeStates Map.! label
 
 forNodes :: [NodeID] -> (NodeID -> Invariant m s Bool) -> Invariant m s Bool
 forNodes nodes p = and . sequence (p <$> nodes)
@@ -61,15 +62,15 @@ blockingOn tag node responseHandler = forNode node inState
     
 -- |Bounded invariant checking
 -- simulateNetworkCollecting :: Network [] s -> [[Network [] s]]
-applyInvariantForInstance :: Invariant m s a -> m -> Network f s -> Label -> a
+applyInvariantForInstance :: Invariant m s a -> m -> SpecNetwork f s -> Label -> a
 applyInvariantForInstance inv m n l = inv (m, l, n) 
 
-applyInvariant :: Invariant m s a -> m -> Network f s -> [a]
-applyInvariant inv m n = applyInvariantForInstance inv m n <$> (fst <$> _protlets n)
+applyInvariant :: Invariant m s a -> m -> SpecNetwork f s -> [a]
+applyInvariant inv m n = applyInvariantForInstance inv m n <$> Map.keys (_globalState n)
 
 -- |Will return `Just n` if the `n`th state was found in violation of the invariant.
 -- Otherwise `Nothing`
-checkTrace :: Invariant m s Bool -> m -> [Network f s] -> Maybe Int
+checkTrace :: Invariant m s Bool -> m -> [SpecNetwork f s] -> Maybe Int
 checkTrace inv m = go 0
   where
     go _ [] = Nothing
@@ -80,8 +81,7 @@ checkTrace inv m = go 0
 
 -- |Returns Just (n, m) if the nth trace is found in violation of the invariant after
 -- m steps. 
-{-
-checkTraces :: Invariant m s Bool -> m -> [[Network [] s]] -> Maybe (Int, Int)
+checkTraces :: Invariant m s Bool -> m -> [[SpecNetwork [] s]] -> Maybe (Int, Int)
 checkTraces inv m = go 0
   where
     go _ [] = Nothing
@@ -90,9 +90,8 @@ checkTraces inv m = go 0
         Nothing -> go (n + 1) ts
         Just k -> Just (n, k)
 
-exhaustiveInvariantCheck :: Invariant m s Bool -> m -> Network [] s -> Maybe (Int, Int)
+exhaustiveInvariantCheck :: Invariant m s Bool -> m -> SpecNetwork [] s -> Maybe (Int, Int)
 exhaustiveInvariantCheck inv m net = checkTraces inv m (simulateNetworkTraces net)
 
-boundedInvariantCheck :: Invariant m s Bool -> m -> Network [] s -> Int -> Maybe (Int, Int)
+boundedInvariantCheck :: Invariant m s Bool -> m -> SpecNetwork [] s -> Int -> Maybe (Int, Int)
 boundedInvariantCheck inv m net bound = checkTraces inv m (take bound <$> simulateNetworkTraces net)
--}

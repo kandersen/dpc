@@ -7,6 +7,8 @@ module NetSim.Specifications (
   ) where
 
 import           Control.Applicative
+import           Control.Monad       (guard)
+import           Control.Arrow       (second, (***))
 import           Data.Map            (Map, (!))
 import qualified Data.Map            as Map
 import           Data.Foldable
@@ -47,31 +49,20 @@ type Send    f s = NodeID  -> s -> f (Message, s)
 
 type Broadcast s = s -> Maybe ([(NodeID, [Int])], [[Int]] -> s)
 
-data Network f s = Network {
-  _nodes    :: [NodeID],
-  _states   :: Map NodeID (Map Label (NodeState s)),
-  _inboxes  :: Map NodeID [Message],
-  _protlets :: [(Label, Protlet f s)]
-  }
-  deriving (Show)
+type SpecNetwork f s = NetworkState (Map Label (Protlet f s)) (Map Label (NodeState s), [Message])
 
-data NetworkState global local = NetworkState {
-  _nsNodes :: [NodeID],
-  _nsLocalStates :: Map NodeID local,
-  _nsGlobalState :: global
-}
+protletInstances :: SpecNetwork f s -> [Label]
+protletInstances = Map.keys . _globalState
 
 -- type Network = NetworkState [(Label, Protlet f s)] (Map Label (NodeState s), [Message])
 -- type Configuration m a = NetworkState [Message] (m a)
 
 -- |Initialize a network with an association of nodes to protlet instance states, and 
 -- an association of protlet instsnaces to protlets. 
-initializeNetwork :: [(NodeID,[(Label, s)])] -> [(Label, Protlet f s)] -> Network f s
-initializeNetwork ns protlets = Network {
-  _nodes = fst <$> ns,
-  _states = Map.fromList [ (n, nodestates states) | (n, states) <- ns ],
-  _inboxes = Map.fromList [ (n, []) | n <- fst <$> ns ],
-  _protlets = protlets
+initializeNetwork :: [(NodeID,[(Label, s)])] -> [(Label, Protlet f s)] -> SpecNetwork f s
+initializeNetwork ns protlets = NetworkState {
+  _localStates = Map.fromList [ (n, (nodestates states, [])) | (n, states) <- ns ],
+  _globalState = Map.fromList protlets
   }
   where
     nodestates :: [(Label, s)] -> Map Label (NodeState s)
@@ -84,21 +75,20 @@ data Transition s = ReceivedMessages Label NodeID [Message] (NodeState s) [Messa
                   | SentMessages     Label NodeID [Message] (NodeState s) [Message]
                   deriving Show
 
-applyTransition :: Transition s -> (Network f s -> Network f s)
+applyTransition :: Transition s -> (SpecNetwork f s -> SpecNetwork f s)
 applyTransition (ReceivedMessages label nodeID _ s' inbox') =
   update label nodeID s' inbox'
 applyTransition (SentMessages label nodeID msgs s' inbox') =
   foldr (.) id (deliver <$> msgs) . update label nodeID s' inbox'
 
-update :: Label -> NodeID -> NodeState s -> [Message] -> (Network f s -> Network f s)
-update label nodeID s' inbox' network@Network{..} = network {
-    _states = Map.adjust (Map.insert label s') nodeID _states,
-    _inboxes = Map.insert nodeID inbox' _inboxes
+update :: Label -> NodeID -> NodeState s -> [Message] -> (SpecNetwork f s -> SpecNetwork f s)
+update label nodeID s' inbox' network@NetworkState{..} = network {
+    _localStates = Map.adjust (Map.insert label s' *** const inbox') nodeID _localStates
   }
 
-deliver :: Message -> (Network f s -> Network f s)
-deliver msg@Message { .. } network@Network{..} =
-  network { _inboxes = Map.adjust (msg:) _msgTo _inboxes }
+deliver :: Message -> (SpecNetwork f s -> SpecNetwork f s)
+deliver msg@Message { .. } network@NetworkState{..} =
+  network { _localStates = Map.adjust (second (msg:)) _msgTo _localStates }
 
 resolveBlock :: (Monad m, Alternative m) =>
   Label -> String -> NodeID -> [Message] -> [NodeID] -> ([[Int]] -> s) -> m (Transition s)
@@ -202,32 +192,31 @@ stepProtlet nodeID state inbox (label, protlet) = case protlet of
   OneOf protlets -> asum ((\p -> stepProtlet nodeID state inbox (label, p)) <$> protlets)
 
 -- Non-deterministically chose a transition.
-possibleTransitions :: (Monad f, Alternative f) => Network f s -> f (Transition s)
-possibleTransitions Network{..} = do
-  nodeID <- fst <$> oneOf _nodes
-  let inbox = _inboxes ! nodeID
-  (label, state) <- fst <$> oneOf (Map.toList $ _states ! nodeID)
+possibleTransitions :: (Monad f, Alternative f) => SpecNetwork f s -> f (Transition s)
+possibleTransitions ns@NetworkState{..} = do
+  nodeID <- fst <$> oneOf (nodes ns)
+  let inbox = snd $ _localStates Map.! nodeID
+  (label, state) <- fst <$> oneOf (Map.toList $ fst $ _localStates ! nodeID)
   case state of
     BlockingOn _ tag nodeIDs k ->
       resolveBlock label tag nodeID inbox nodeIDs k
     Running s -> do
-      (plabel, protlet) <- fst <$> oneOf _protlets
-      if plabel == label
-      then stepProtlet nodeID s inbox (plabel, protlet)
-      else empty
+      (plabel,_) <- oneOf $ protletInstances ns
+      guard (plabel == label)
+      let protlet = _globalState Map.! plabel
+      stepProtlet nodeID s inbox (plabel, protlet)
 
 -- Non-deterministically advance a network, "chosing" amongst possible transitions.
-stepNetwork :: (Monad f, Alternative f) => Network f s -> f (Network f s)
+stepNetwork :: (Monad f, Alternative f) => SpecNetwork f s -> f (SpecNetwork f s)
 stepNetwork network = applyTransition <$> possibleTransitions network <*> pure network
 
-
 -- Simulate network execution using Random IO to pick transitions. Yields a trace of network states
-simulateNetworkIO :: Network [] s -> IO [Network [] s]
+simulateNetworkIO :: SpecNetwork [] s -> IO [SpecNetwork [] s]
 simulateNetworkIO n = (n:) <$> (simulateNetworkIO =<< pickRandom (stepNetwork n))
 
 -- Simulate network execution using the list-monad to explore possible states. 
 -- Yields a list with the `nth` index containing states after `n` steps of execution.
-simulateNetworkTraces :: Network [] s -> [[Network [] s]]
+simulateNetworkTraces :: SpecNetwork [] s -> [[SpecNetwork [] s]]
 simulateNetworkTraces = go
   where
     go n = 
