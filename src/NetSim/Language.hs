@@ -6,6 +6,7 @@ module NetSim.Language where
 
 import           Data.Foldable
 import           Data.Maybe    (isJust)
+import           Data.Map as Map
 
 import NetSim.Types
 import NetSim.Specifications
@@ -79,3 +80,6 @@ broadcast = broadcastQuorom (1 :: Double)
 --
 
 type ImplNetwork m a = NetworkState [Message] (m a)
+
+initializeImplNetwork :: [(NodeID, m a)] -> ImplNetwork m a
+initializeImplNetwork = NetworkState [] . Map.fromList

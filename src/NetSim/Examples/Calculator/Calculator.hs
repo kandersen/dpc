@@ -143,12 +143,9 @@ addClient a b server = do
   return ans
 
 initConf :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => ImplNetwork m Int
-initConf = NetworkState {
-  _globalState = [],
-  _localStates = Map.fromList [
+initConf = initializeImplNetwork [
     (clientID, polynomialClient addLabel mulLabel serverID (1 + 1)),
     (serverID, polynomialServer addLabel mulLabel) ]
-  }
   where
     clientID, serverID :: NodeID
     clientID = 1
@@ -158,14 +155,11 @@ initConf = NetworkState {
     mulLabel = 1
 
 simpleConf :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => ImplNetwork m Int
-simpleConf = NetworkState {
-  _globalState = [],
-  _localStates = Map.fromList [
+simpleConf = initializeImplNetwork [
           (client2, addClient 3 2 server)
         , (client1, addClient 1 1 server)
         , (server, addServer 0) 
         ]
-  }
   where
     server, client1, client2 :: NodeID
     client2 = 2

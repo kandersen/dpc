@@ -199,13 +199,10 @@ clientPredeterminedVals lbl server (x:xs) = do
     clientPredeterminedVals lbl server xs
 
 initConf :: ImplNetwork Runner ()
-initConf = NetworkState {
-    _globalState = [],
-    _localStates = fromList [
+initConf = initializeImplNetwork [
       (1, clientIO 3 serverID),
       (serverID, compositeServer instances 47)
     ]
-}
   where
     serverID = 0 :: Label
     instances = [0..5] :: [Label]

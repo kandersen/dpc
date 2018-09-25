@@ -82,14 +82,11 @@ calculatorClient label a b server = do
   return x
 
 calcConfiguration :: MessagePassing m => ImplNetwork m Int
-calcConfiguration = NetworkState {
-  _localStates = Map.fromList [
+calcConfiguration = initializeImplNetwork [
                         (0, calculatorServer label)
                       , (1, calculatorClient label 40 2 0)
                       , (2, calculatorClient label 100 11 0)
-                      ],
-  _globalState = []
-  }
+                      ]
   where
     label :: NodeID
     label = 0

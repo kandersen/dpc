@@ -26,7 +26,7 @@ noInvariant = const True
 forNode :: NodeID -> ((NodeState s, [Message]) -> Invariant m s Bool) -> Invariant m s Bool
 forNode nodeID p (meta, label, network) = p (instanceState, mailbox) (meta, label, network)
   where
-    (nodeStates, mailbox) = _localStates network Map.! nodeID
+    (nodeStates, mailbox, _) = _localStates network Map.! nodeID
     instanceState = nodeStates Map.! label
 
 forNodes :: [NodeID] -> (NodeID -> Invariant m s Bool) -> Invariant m s Bool

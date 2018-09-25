@@ -8,8 +8,7 @@ module NetSim.Specifications (
 
 import           Control.Applicative
 import           Control.Monad       (guard)
-import           Control.Arrow       (second, (***))
-import           Data.Map            (Map, (!))
+import           Data.Map            (Map)
 import qualified Data.Map            as Map
 import           Data.Foldable
 import           Lens.Micro
@@ -27,7 +26,7 @@ instance Show s => Show (NodeState s) where
   show (Running s) =
     "Running " ++ show s
   show (BlockingOn s rpc from _) =
-    unwords ["Blocking in state ", show s, " expecting ", rpc, show from, "<Continuation>"]
+    unwords ["Blocking in state", show s, "expecting", rpc, show from, "<Continuation>"]
 
 --                 Protlet      Name   Initiator      Recipient(s)
 data Protlet f s = RPC          String (ClientStep s) (ServerStep s)
@@ -49,7 +48,7 @@ type Send    f s = NodeID  -> s -> f (Message, s)
 
 type Broadcast s = s -> Maybe ([(NodeID, [Int])], [[Int]] -> s)
 
-type SpecNetwork f s = NetworkState (Map Label (Protlet f s)) (Map Label (NodeState s), [Message])
+type SpecNetwork f s = NetworkState (Map Label (Protlet f s)) (Map Label (NodeState s), [Message], Bool)
 
 protletInstances :: SpecNetwork f s -> [Label]
 protletInstances = Map.keys . _globalState
@@ -61,7 +60,7 @@ protletInstances = Map.keys . _globalState
 -- an association of protlet instsnaces to protlets. 
 initializeNetwork :: [(NodeID,[(Label, s)])] -> [(Label, Protlet f s)] -> SpecNetwork f s
 initializeNetwork ns protlets = NetworkState {
-  _localStates = Map.fromList [ (n, (nodestates states, [])) | (n, states) <- ns ],
+  _localStates = Map.fromList [ (n, (nodestates states, [], True)) | (n, states) <- ns ],
   _globalState = Map.fromList protlets
   }
   where
@@ -73,6 +72,7 @@ initializeNetwork ns protlets = NetworkState {
 --
 data Transition s = ReceivedMessages Label NodeID [Message] (NodeState s) [Message]
                   | SentMessages     Label NodeID [Message] (NodeState s) [Message]
+                  | Crash                  NodeID
                   deriving Show
 
 applyTransition :: Transition s -> (SpecNetwork f s -> SpecNetwork f s)
@@ -80,15 +80,19 @@ applyTransition (ReceivedMessages label nodeID _ s' inbox') =
   update label nodeID s' inbox'
 applyTransition (SentMessages label nodeID msgs s' inbox') =
   foldr (.) id (deliver <$> msgs) . update label nodeID s' inbox'
+applyTransition (Crash nodeID) = \network@NetworkState{..} ->
+  network {
+    _localStates = Map.adjust (\(ss, inbox, _) -> (ss, inbox, False)) nodeID _localStates
+  }
 
 update :: Label -> NodeID -> NodeState s -> [Message] -> (SpecNetwork f s -> SpecNetwork f s)
 update label nodeID s' inbox' network@NetworkState{..} = network {
-    _localStates = Map.adjust (Map.insert label s' *** const inbox') nodeID _localStates
+    _localStates = Map.adjust (\(ss, _, status) -> (Map.insert label s' ss, inbox', status)) nodeID _localStates
   }
 
 deliver :: Message -> (SpecNetwork f s -> SpecNetwork f s)
 deliver msg@Message { .. } network@NetworkState{..} =
-  network { _localStates = Map.adjust (second (msg:)) _msgTo _localStates }
+  network { _localStates = Map.adjust (\(ss,inbox,status) -> (ss, msg:inbox, status)) _msgTo _localStates }
 
 resolveBlock :: (Monad m, Alternative m) =>
   Label -> String -> NodeID -> [Message] -> [NodeID] -> ([[Int]] -> s) -> m (Transition s)
@@ -195,8 +199,9 @@ stepProtlet nodeID state inbox (label, protlet) = case protlet of
 possibleTransitions :: (Monad f, Alternative f) => SpecNetwork f s -> f (Transition s)
 possibleTransitions ns@NetworkState{..} = do
   nodeID <- fst <$> oneOf (nodes ns)
-  let inbox = snd $ _localStates Map.! nodeID
-  (label, state) <- fst <$> oneOf (Map.toList $ fst $ _localStates ! nodeID)
+  let (states, inbox, status) = _localStates Map.! nodeID
+  guard status
+  (label, state) <- fst <$> oneOf (Map.toList states)
   case state of
     BlockingOn _ tag nodeIDs k ->
       resolveBlock label tag nodeID inbox nodeIDs k
@@ -205,6 +210,13 @@ possibleTransitions ns@NetworkState{..} = do
       guard (plabel == label)
       let protlet = _globalState Map.! plabel
       stepProtlet nodeID s inbox (plabel, protlet)
+
+possibleCrashes :: (Monad f, Alternative f) => SpecNetwork f s -> f (Transition s)
+possibleCrashes ns@NetworkState{..} = do
+  nodeID <- fst <$> oneOf (nodes ns)
+  let (_, _, status) = _localStates Map.! nodeID
+  guard status
+  return $ Crash nodeID
 
 -- Non-deterministically advance a network, "chosing" amongst possible transitions.
 stepNetwork :: (Monad f, Alternative f) => SpecNetwork f s -> f (SpecNetwork f s)

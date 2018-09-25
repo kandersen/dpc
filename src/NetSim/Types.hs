@@ -21,8 +21,8 @@ data Message = Message {
   deriving (Eq, Show, Generic, Serialize)
 
 data NetworkState global local = NetworkState {
-  _localStates :: Map NodeID local,
-  _globalState :: global
+  _globalState :: global,
+  _localStates :: Map NodeID local
 } deriving Show
 
 nodes :: NetworkState g l -> [NodeID]

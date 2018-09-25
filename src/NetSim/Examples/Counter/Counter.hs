@@ -23,6 +23,7 @@ tick = RPC "Tick" clientStep serverStep
 tickServer :: MessagePassing m => Label -> m a 
 tickServer lbl = go 0
   where
+    go :: MessagePassing m => Int -> m a
     go n = do
       Message client _ _ _ _ <- spinReceive [(lbl, "Tick__Request")]
       send client lbl "Tick__Response" []

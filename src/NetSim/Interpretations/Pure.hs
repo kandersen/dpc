@@ -202,7 +202,7 @@ checkTrace initNetwork trace = case runStateT (go trace) (Init <$> initConf) of
   Left e -> Left e
   Right ((), _) -> Right ()
   where
-    initConf = Map.fromList [ (k, s) | (k, (v,_)) <- Map.assocs $ _localStates initNetwork, Running s <- [v Map.! 0]]
+    initConf = Map.fromList [ (k, s) | (k, (v,_,_)) <- Map.assocs $ _localStates initNetwork, Running s <- [v Map.! 0]]
 
     go :: Show s => [TraceAction s] -> ValidationM s ()
     go ts = sequence_ $ checkAction <$> ts
