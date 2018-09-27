@@ -67,8 +67,7 @@ initNetwork = initializeNetwork nodeStates protlets
             , (5, [(label, ClientInit 5 0 7 7)])
             , (6, [(label, ClientInit 6 0 100 1000)])
             ]
-    protlets :: Alternative f => [(NodeID, Protlet f PState)]
-    protlets = [(label, computeProtocol)]
+    protlets = [(label, [computeProtocol])]
 
 calculatorServer :: MessagePassing m => Label -> m a
 calculatorServer label = do

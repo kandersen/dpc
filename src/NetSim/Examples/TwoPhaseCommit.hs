@@ -36,7 +36,7 @@ prepare label = Broadcast "Prepare" coordinatorBroadcast participantReceive part
     coordinatorBroadcast :: Broadcast State
     coordinatorBroadcast = \case
       CoordinatorInit participants ->
-        pure (zip participants (repeat []), receiveResponses participants)
+        pure (zip participants (repeat []), receiveResponses participants . fmap snd)
       _ -> empty
     receiveResponses participants responses =
       if any (/= [1]) responses
@@ -107,8 +107,8 @@ initNetwork = initializeNetwork nodeStates protlets
                  , (2, [(label, ParticipantInit)])
                  , (3, [(label, ParticipantInit)])
                  ]
-    protlets :: Alternative f => [(NodeID, Protlet f State)]
-    protlets = [(label, prepare label), (label, decide label)]
+    protlets :: Alternative f => [(NodeID, [Protlet f State])]
+    protlets = [(label, [prepare label, decide label])]
     label :: NodeID
     label = 0
 

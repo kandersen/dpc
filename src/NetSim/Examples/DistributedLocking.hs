@@ -124,9 +124,5 @@ initNetwork = initializeNetwork nodes protlets
             , (2, [(0, LockIdle 0)])
             , (3, [(0, ResourceIdle 2 0)])
             ]
-    protlets :: Alternative f => [(NodeID, Protlet f State)]
-    protlets = [ (0, acquire)
-               , (0, modifyResource)
-               , (0, verifyToken)
-               , (0, release)
-               ]
+    protlets :: Alternative f => [(NodeID, [Protlet f State])]
+    protlets = [(0, [acquire, modifyResource, verifyToken, release])]

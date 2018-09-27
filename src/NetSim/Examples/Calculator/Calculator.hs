@@ -44,8 +44,8 @@ initNetwork = initializeNetwork nodeStates protlets
     nodeStates = [ (server, [(addLabel, Server), (mulLabel, Server)])
                  , (1, [(addLabel, ClientInit [1, 1])])
                  ]
-    protlets = [(addLabel, compute server sum),
-                (mulLabel, compute server product)]
+    protlets = [(addLabel, [compute server sum]),
+                (mulLabel, [compute server product])]
 
 simpleNetwork :: Alternative f => SpecNetwork f S                
 simpleNetwork = initializeNetwork nodeStates protlets
@@ -59,7 +59,7 @@ simpleNetwork = initializeNetwork nodeStates protlets
                  , (client2, [(0, ClientInit [3, 2])])
                  ]
 
-    protlets = [(0, compute server sum)]
+    protlets = [(0, [compute server sum])]
 
 --- Implementation
 addServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Label -> m a

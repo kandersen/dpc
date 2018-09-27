@@ -1,16 +1,17 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
---{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RecordWildCards #-}
 module NetSim.Examples.Paxos where
-{-
 
 import           NetSim.Types
 import           NetSim.Specifications
 import           NetSim.Language
+import           NetSim.Util
 
 import           Control.Monad   (forM_)
-import qualified Data.Map        as Map
 import           Data.Maybe      (fromMaybe)
+import           Data.Ratio
 
 -- Specification
 {-
@@ -21,32 +22,149 @@ import           Data.Maybe      (fromMaybe)
 
 -- Every state is indexed by the round and the currently accepted value.
 -- The accepted value is a sequence of ints for ease of programming
-data PState = Acceptor
-            | Proposer
+data PState = ProposerInit   Int      -- Ballot
+                             Int      -- Desired value
+                             [NodeID] -- List of acceptors   
+            | ProposerPolled Int      -- This ballot
+                             Int      -- Desired value
+                             [NodeID] -- Acceptors
+                             Int      -- Highest-ballot value from acceptors
+            | ProposerDone   Int      -- The settled value
 
-propose :: Alternative f => Protlet f PState
-propose = Broadcast "propose" propositionCast acceptorReceive acceptorRespond
+            | Acceptor AcceptorState
+            deriving Show
+
+data AcceptorState = AS {
+  _acceptedBallot :: Maybe (Either Int (Int, Int)),
+  _outstandingMsgs :: [Response]
+} deriving Show
+
+acceptorInit :: PState 
+acceptorInit = Acceptor $ AS Nothing []
+
+data Response = FirstBallotOK NodeID
+              | CurrentlySupporting NodeID Int
+              | PreviouslyAccepted NodeID Int Int    
+              deriving Show        
+
+
+ 
+respond :: Label -> NodeID -> Response -> Message
+respond label from (FirstBallotOK to) = Message {
+  _msgTo = to,
+  _msgBody = [],
+  _msgFrom = from,
+  _msgLabel = label,
+  _msgTag = "prepare__Response"
+}
+respond label from (CurrentlySupporting to b') = Message {
+  _msgTo = to,
+  _msgBody = [b'],
+  _msgFrom = from,
+  _msgLabel = label,
+  _msgTag = "prepare__Response"
+}
+respond label from (PreviouslyAccepted to b' v') = Message {
+  _msgTo = to,
+  _msgBody = [b', v'],
+  _msgFrom = from,
+  _msgLabel = label,
+  _msgTag = "prepare__Response"
+}
+
+prepare :: Alternative f => Label -> Int -> Protlet f PState
+prepare label n = Quorum "prepare" ((fromIntegral n % 2) + 1) propositionCast acceptorReceive acceptorRespond
   where
+    -- type Broadcast s = s -> Maybe ([(NodeID, [Int])], [(NodeID, [Int])] -> s)
+    propositionCast :: Broadcast PState
     propositionCast = \case
-      Participant ps r v dv -> 
-        if v == dv
-          then Nothing
-          else Just (zip ps $ repeat (r : dv), proposerCont ps r v dv)
-    proposerCont ps r v dv responses = Participant ps r v dv
-    acceptorReceive msg = \case
-      Participant ps r v dv -> undefined
-    acceptorRespond proposer = \case
+      ProposerInit b v as -> Just (zip as (repeat [b]), propositionReceive b v as)
       _ -> empty
 
--- type Receive   s = Message -> s -> Maybe s
--- type Send    f s = NodeID -> s -> f (Message, s)
--- type Broadcast s = s -> Maybe ([(NodeID, [Int])], [(NodeID, [Int])] -> s)
+    propositionReceive b v as = ProposerPolled b v as . findHighestBallotedValue (b, v) . concatMap (getVote . snd)
+
+    getVote :: [Int] -> [(Int, Int)]
+    getVote [] = []
+    getVote [_] = []
+    getVote [b',w] = [(b', w)]
+
+    findHighestBallotedValue :: (Int, Int) -> [(Int, Int)] -> Int
+    findHighestBallotedValue (_, w) [] = w
+    findHighestBallotedValue (b, v) ((b', w):rs) = findHighestBallotedValue (if b' > b then (b', w) else (b, v)) rs
+
+    -- type Receive   s = Message -> s -> Maybe s
+    acceptorReceive :: Receive PState
+    acceptorReceive msg = \case
+      Acceptor s@AS{..} -> 
+        case _acceptedBallot of
+          Nothing -> Just $ Acceptor s { _acceptedBallot = Just (Left $ getBallot msg), 
+                                         _outstandingMsgs = FirstBallotOK (_msgFrom msg) : _outstandingMsgs }
+          Just (Left b') -> 
+            if getBallot msg > b' 
+              then Just $ Acceptor s { _acceptedBallot = Just (Left $ getBallot msg),
+                                       _outstandingMsgs = FirstBallotOK (_msgFrom msg) : _outstandingMsgs }
+              else Just $ Acceptor s { _outstandingMsgs = CurrentlySupporting (_msgFrom msg) b' : _outstandingMsgs }
+          Just (Right (b', w)) ->
+            if getBallot msg > b'
+              then Just $ Acceptor s { _acceptedBallot = Just (Left $ getBallot msg),
+                                       _outstandingMsgs = PreviouslyAccepted (_msgFrom msg) b' w : _outstandingMsgs }
+              else Just $ Acceptor s
+      _ -> empty
+
+    getBallot = head . _msgBody
+
+    -- type Send    f s = NodeID -> s -> f (Message, s)
+    acceptorRespond :: Alternative f => Send f PState
+    acceptorRespond acceptorID = \case
+      Acceptor s@AS{..} ->
+        (\(r, omsgs') -> (respond label acceptorID r, Acceptor $ s { _outstandingMsgs = omsgs'})) <$> oneOf _outstandingMsgs
+      _ -> empty
+      
+
+commit :: Alternative f => Protlet f PState
+commit = Quorum "commit" 0 commitCast acceptorReceive acceptorRespond
+  where
+    commitCast :: Broadcast PState
+    commitCast = \case
+      ProposerPolled b _ as w -> Just (zip as (repeat [b, w]),\_ -> ProposerDone w)
+      _ -> empty
+
+    acceptorReceive msg = \case
+      Acceptor s@AS{..} ->
+        case _acceptedBallot of
+          Just (Left b) | b == getBallot msg -> Just $ Acceptor s { _acceptedBallot = Just $ Right (b, getValue msg) }
+          _ -> empty
+      _ -> empty
+
+    getBallot = head . _msgBody
+    getValue  = head . tail . _msgBody
+
+    acceptorRespond :: Alternative f => Send f PState
+    acceptorRespond _ _ = empty
+
+
+initNetwork :: Alternative f => SpecNetwork f PState
+initNetwork = initializeNetwork nodeStates protlets
+  where
+    nodeStates :: [(NodeID, [(NodeID, PState)])]
+    nodeStates = [ (0, [(label, ProposerInit 0 0 [1, 2, 3])])
+                 , (1, [(label, acceptorInit)])
+                 , (2, [(label, acceptorInit)])
+                 , (3, [(label, acceptorInit)])
+                 , (4, [(label, ProposerInit 4 42 [1, 2, 3])])
+                 , (5, [(label, ProposerInit 5 117 [1, 2, 3])])
+                 ]
+    protlets :: Alternative f => [(NodeID, [Protlet f PState])]
+    protlets = [(label, [prepare label 3, commit])]
+
+    label :: Label
+    label = 0
 
 -- Round-Based Register
 
-readRBR :: MessagePassing () m => Label -> [NodeID] -> Int -> m (Bool, Maybe Int)
+readRBR :: MessagePassing m => Label -> [NodeID] -> Int -> m (Bool, Maybe Int)
 readRBR lbl participants r = do
-  forM_ participants $ \pt -> send () pt lbl "Read__Request" [r]
+  forM_ participants $ \pt -> send pt lbl "Read__Request" [r]
   spinForResponses 0 Nothing []
   where
     n :: Double
@@ -62,7 +180,7 @@ readRBR lbl participants r = do
       if isDone q
         then return (True, maxV)
         else do
-          Message sender _ body _ _ <- spinReceive [((), lbl, "Read__Response")]
+          Message sender _ body _ _ <- spinReceive [(lbl, "Read__Response")]
           case body of
             [1, k, 0, kW] | k == r ->
               if kW >= maxKW
@@ -76,16 +194,16 @@ readRBR lbl participants r = do
             _ -> spinForResponses maxKW maxV q
 
 
-writeRBR :: MessagePassing () m => Label -> [NodeID] -> Int -> Int -> m Bool
+writeRBR :: MessagePassing m => Label -> [NodeID] -> Int -> Int -> m Bool
 writeRBR lbl participants r vW = do
-  forM_ participants $ \pt -> send () pt lbl "Write__Request" [r, vW]
+  forM_ participants $ \pt -> send pt lbl "Write__Request" [r, vW]
   spinForResponses []
   where
     n :: Double
     n = fromIntegral $ length participants
 
     spinForResponses q = do
-      Message sender _ body _ _ <- spinReceive [((), lbl, "Write__Response")]
+      Message sender _ body _ _ <- spinReceive [(lbl, "Write__Response")]
       case body of
         [1, k] | k == r ->
             if length q == ceiling ((n + 1.0) / 2.0)
@@ -94,34 +212,34 @@ writeRBR lbl participants r vW = do
         [0, k] | k == r -> return False
         _ -> spinForResponses q
 
-acceptor :: MessagePassing () m => Label -> m a
+acceptor :: MessagePassing m => Label -> m a
 acceptor lbl = go Nothing 0 0
   where
     go mv r w = do
-      Message sender tag body _ _ <- spinReceive [((), lbl, "Read__Request"), ((), lbl, "Write__Request")]
+      Message sender tag body _ _ <- spinReceive [(lbl, "Read__Request"), (lbl, "Write__Request")]
       case (tag, body) of
         ("Read__Request", [k]) ->
             if k < r
               then do
-                send () sender lbl "Read__Response" [0, k]
+                send sender lbl "Read__Response" [0, k]
                 go mv r w
               else do
                 let msg = case mv of
                             Nothing -> [1, k, 0, w]
                             Just v  -> [1, k, 1, v, w]
-                send () sender lbl "Read__Response" msg
+                send sender lbl "Read__Response" msg
                 go mv k w
         ("Write__Request", [k, vW]) ->
             if k < r
                 then do
-                  send () sender lbl "Write__Response" [0, k]
+                  send sender lbl "Write__Response" [0, k]
                   go mv r w
                 else do
-                  send () sender lbl "Write__Response" [1, k]
+                  send sender lbl "Write__Response" [1, k]
                   go (Just vW) k k
         _ -> error $ "Illformed request " ++ tag ++ ": " ++ show body
 
-proposeRC :: MessagePassing () m =>
+proposeRC :: MessagePassing m =>
   Label -> [NodeID] -> Int -> Int -> m (Bool, Maybe Int)
 proposeRC lbl participants r v0 = do
   (resR, mv) <- readRBR lbl participants r
@@ -134,7 +252,7 @@ proposeRC lbl participants r v0 = do
         else return (False, Nothing)
     else return (False, Nothing)
 
-proposeP :: (NetworkNode m, MessagePassing () m) => Label -> [NodeID] -> Int -> m Int
+proposeP :: (NetworkNode m, MessagePassing m) => Label -> [NodeID] -> Int -> m Int
 proposeP lbl participants v0 = do
     k <- this 
     loopTillSucceed k
@@ -146,14 +264,9 @@ proposeP lbl participants v0 = do
         else loopTillSucceed (k + length participants)
 
 
-initConf :: (NetworkNode m, MessagePassing () m) => Configuration m Int
-initConf = Configuration {
-    _confNodes = [0..2],
-    _confSoup = [],
-    _confNodeStates = Map.fromList [
+initConf :: (NetworkNode m, MessagePassing m) => ImplNetwork m Int
+initConf = initializeImplNetwork [
           (0, proposeP 0 [1, 2] 42)
         , (1, acceptor 0)
         , (2, acceptor 0)
       ]
-  }
--}
