@@ -20,8 +20,6 @@ import           Data.Ratio
  proposed by some node participating in the protocol”
 -}
 
--- Every state is indexed by the round and the currently accepted value.
--- The accepted value is a sequence of ints for ease of programming
 data PState = ProposerInit   Int      -- Ballot
                              Int      -- Desired value
                              [NodeID] -- List of acceptors   
@@ -72,28 +70,23 @@ respond label from (PreviouslyAccepted to b' v') = Message {
   _msgTag = "prepare__Response"
 }
 
+getVote :: [Int] -> [(Int, Int)]
+getVote [] = []
+getVote [_] = []
+getVote [b',w] = [(b', w)]
+
+findHighestBallotedValue :: (Int, Int) -> [(Int, Int)] -> Int
+findHighestBallotedValue (_, w) [] = w
+findHighestBallotedValue (b, v) ((b', w):rs) = findHighestBallotedValue (if b' > b then (b', w) else (b, v)) rs
+
 prepare :: Alternative f => Label -> Int -> Protlet f PState
 prepare label n = Quorum "prepare" ((fromIntegral n % 2) + 1) propositionCast acceptorReceive acceptorRespond
   where
-    -- type Broadcast s = s -> Maybe ([(NodeID, [Int])], [(NodeID, [Int])] -> s)
-    propositionCast :: Broadcast PState
     propositionCast = \case
       ProposerInit b v as -> Just (zip as (repeat [b]), propositionReceive b v as)
       _ -> empty
-
     propositionReceive b v as = ProposerPolled b v as . findHighestBallotedValue (b, v) . concatMap (getVote . snd)
 
-    getVote :: [Int] -> [(Int, Int)]
-    getVote [] = []
-    getVote [_] = []
-    getVote [b',w] = [(b', w)]
-
-    findHighestBallotedValue :: (Int, Int) -> [(Int, Int)] -> Int
-    findHighestBallotedValue (_, w) [] = w
-    findHighestBallotedValue (b, v) ((b', w):rs) = findHighestBallotedValue (if b' > b then (b', w) else (b, v)) rs
-
-    -- type Receive   s = Message -> s -> Maybe s
-    acceptorReceive :: Receive PState
     acceptorReceive msg = \case
       Acceptor s@AS{..} -> 
         case _acceptedBallot of
@@ -110,21 +103,18 @@ prepare label n = Quorum "prepare" ((fromIntegral n % 2) + 1) propositionCast ac
                                        _outstandingMsgs = PreviouslyAccepted (_msgFrom msg) b' w : _outstandingMsgs }
               else Just $ Acceptor s
       _ -> empty
-
+        
     getBallot = head . _msgBody
 
-    -- type Send    f s = NodeID -> s -> f (Message, s)
-    acceptorRespond :: Alternative f => Send f PState
     acceptorRespond acceptorID = \case
       Acceptor s@AS{..} ->
         (\(r, omsgs') -> (respond label acceptorID r, Acceptor $ s { _outstandingMsgs = omsgs'})) <$> oneOf _outstandingMsgs
       _ -> empty
       
-
+    
 commit :: Alternative f => Protlet f PState
 commit = Quorum "commit" 0 commitCast acceptorReceive acceptorRespond
   where
-    commitCast :: Broadcast PState
     commitCast = \case
       ProposerPolled b _ as w -> Just (zip as (repeat [b, w]),\_ -> ProposerDone w)
       _ -> empty
@@ -139,7 +129,6 @@ commit = Quorum "commit" 0 commitCast acceptorReceive acceptorRespond
     getBallot = head . _msgBody
     getValue  = head . tail . _msgBody
 
-    acceptorRespond :: Alternative f => Send f PState
     acceptorRespond _ _ = empty
 
 

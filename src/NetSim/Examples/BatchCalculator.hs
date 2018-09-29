@@ -2,10 +2,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 module NetSim.Examples.BatchCalculator where
 
-import qualified Data.Map        as Map
 import NetSim.Types
-import           NetSim.Specifications
-import           NetSim.Language
+import NetSim.Specifications
+import NetSim.Language
 
 data PState = ClientInit NodeID NodeID Int Int
             | ClientDone Int

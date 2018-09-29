@@ -18,7 +18,6 @@ import           Text.Show.Functions ()
 
 import NetSim.Types
 
-
 data NodeState s = Running s
                  | BlockingOn s String Rational [NodeID] ([(NodeID, [Int])] -> s)
 
@@ -28,14 +27,15 @@ instance Show s => Show (NodeState s) where
   show (BlockingOn s rpc f from _) =
     unwords ["Blocking in state", show s, "expecting", show f, "of the responses from", rpc, show from, "<Continuation>"]
 
---                 Protlet      Name            Initiator      Recipient(s)
-data Protlet f s = RPC          String          (ClientStep s) (ServerStep s)
-                 | ARPC         String          (ClientStep s) (Receive s) (Send f s)
-                 | Notification String          (Send f s)     (Receive s)
-                 | Broadcast    String          (Broadcast s)  (Receive s) (Send f s) 
-                 | Quorum       String Rational (Broadcast s)  (Receive s) (Send f s)
-                 | OneOf        [Protlet f s]
-                 deriving (Show)
+data Protlet f s = 
+--  Protlet      Name            Initiator      Recipient(s)  
+    RPC          String          (ClientStep s) (ServerStep s)
+  | ARPC         String          (ClientStep s) (Receive s) (Send f s)
+  | Notification String          (Send f s)     (Receive s)
+  | Broadcast    String          (Broadcast s)  (Receive s) (Send f s) 
+  | Quorum       String Rational (Broadcast s)  (Receive s) (Send f s)
+  | OneOf        [Protlet f s]
+  deriving (Show)
 
 type ClientStep s = s -> Maybe (NodeID, [Int], [Int] -> s)
 type ServerStep s = [Int] -> s -> Maybe ([Int], s)
@@ -49,9 +49,6 @@ type SpecNetwork f s = NetworkState (Map Label [Protlet f s]) (Map Label (NodeSt
 
 protletInstances :: SpecNetwork f s -> [Label]
 protletInstances = Map.keys . _globalState
-
--- type Network = NetworkState [(Label, Protlet f s)] (Map Label (NodeState s), [Message])
--- type Configuration m a = NetworkState [Message] (m a)
 
 -- |Initialize a network with an association of nodes to protlet instance states, and 
 -- an association of protlet instsnaces to protlets. 
@@ -198,7 +195,6 @@ tryQuorum label name quorumSize broadcast nodeID state inbox = case broadcast st
       _msgLabel = label
       }
     
-
 stepProtlet :: (Monad m, Alternative m) =>
   NodeID -> s -> [Message] -> Label -> Protlet m s ->  m (Transition s)
 stepProtlet nodeID state inbox label protlet = case protlet of
@@ -252,7 +248,11 @@ stepNetwork network = applyTransition <$> possibleTransitions network <*> pure n
 
 -- Simulate network execution using Random IO to pick transitions. Yields a trace of network states
 simulateNetworkIO :: SpecNetwork [] s -> IO [SpecNetwork [] s]
-simulateNetworkIO n = (n:) <$> (simulateNetworkIO =<< pickRandom (stepNetwork n))
+simulateNetworkIO n = do
+  let nextNs = stepNetwork n
+  case nextNs of 
+    [] -> return [n]
+    _ -> (n:) <$> (simulateNetworkIO =<< pickRandom nextNs)
 
 -- Simulate network execution using the list-monad to explore possible states. 
 -- Yields a list with the `nth` index containing states after `n` steps of execution.

@@ -12,63 +12,77 @@ import           NetSim.Language
 import qualified Data.Map        as Map
 import Data.Map (Map)
 
--- Example to demonstrate concurrency!
-
 -- Spec
 
-data S = ClientInit [Int]
+data S = ClientInit NodeID [Int]
        | ClientDone [Int]
-       | Server
+       | ServerReady
        deriving (Show, Eq)
 
-compute :: Alternative f => NodeID -> ([Int] -> Int) -> Protlet f S
-compute server f = RPC "compute" clientStep serverStep
+compute :: ([Int] -> Int) -> Protlet f S
+compute f = RPC "compute" clientStep serverStep
   where
     clientStep = \case
-      ClientInit args ->
+      ClientInit server args ->
         Just (server, args, ClientDone)
-      _ -> Nothing
+      _ -> empty
 
-    serverStep args Server = Just ([f args], Server)
+    serverStep args = \case
+      ServerReady -> pure ([f args], ServerReady)
+      _ -> empty
 
 initStates :: Map NodeID S
-initStates = Map.fromList [(0, Server), (1, ClientInit [1,1]), (2, ClientInit [3,2])]
+initStates = Map.fromList [(0, ServerReady), (1, ClientInit 0 [1,1]), (2, ClientInit 0 [3,2])]
 
-initNetwork :: Alternative f => SpecNetwork f S
+initNetwork :: SpecNetwork f S
 initNetwork = initializeNetwork nodeStates protlets
   where
     addLabel, mulLabel, server :: NodeID
     addLabel = 0
     mulLabel = 1
     server = 0
-    nodeStates = [ (server, [(addLabel, Server), (mulLabel, Server)])
-                 , (1, [(addLabel, ClientInit [1, 1])])
+    nodeStates = [ (server, [(addLabel, ServerReady), (mulLabel, ServerReady)])
+                 , (1, [(addLabel, ClientInit server [1, 1])])
                  ]
-    protlets = [(addLabel, [compute server sum]),
-                (mulLabel, [compute server product])]
+    protlets = [(addLabel, [compute sum]),
+                (mulLabel, [compute product])]
 
-simpleNetwork :: Alternative f => SpecNetwork f S                
+simpleNetwork :: SpecNetwork f S                
 simpleNetwork = initializeNetwork nodeStates protlets
   where
     server, client1, client2 :: NodeID
     server = 0
     client1 = 1
     client2 = 2
-    nodeStates = [ (server, [(0, Server)])
-                 , (client1, [(0, ClientInit [1, 1])])
-                 , (client2, [(0, ClientInit [3, 2])])
+    nodeStates = [ (server, [(0, ServerReady)])
+                 , (client1, [(0, ClientInit server [1, 1])])
+                 , (client2, [(0, ClientInit server [3, 2])])
                  ]
 
-    protlets = [(0, [compute server sum])]
+    protlets = [(0, [compute sum])]
+
+addNetwork :: SpecNetwork f S
+addNetwork = initializeNetwork nodeStates protlets
+  where
+    nodeStates = [ (0, [(0, ServerReady)])
+                 , (1, [(0, ClientInit 0 [3, 100, 20])])
+                  ]
+    protlets = [(0, [compute sum])]
+    
 
 --- Implementation
+addServer' :: (MessagePassing m) => Label -> m a
+addServer' label = do
+  Message client _ args _ _ <- spinReceive [(label, "compute__Request")]
+  send client label "compute__Response" [sum args]
+  addServer' label
+
 addServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Label -> m a
 addServer label = loop
   where
     loop :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => m a
     loop = do
-      nodeID <- this
-      enactingServer (compute nodeID sum) $ do
+      enactingServer (compute sum) $ do
         Message client _ args _ _ <- spinReceive [(label, "compute__Request")]
         send client label "compute__Response" [sum args]
       loop
@@ -78,8 +92,7 @@ mulServer label = loop
   where
     loop :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => m a
     loop = do
-      nodeID <- this
-      enactingServer (compute nodeID product) $ do
+      enactingServer (compute product) $ do
         Message client _ args _ _ <- spinReceive [(label, "compute__Request")]
         send client label "compute__Response" [product args]
       loop
@@ -89,8 +102,7 @@ polynomialServer addLabel mulLabel = loop
   where
     loop :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => m a
     loop = do
-      nodeID <- this
-      enactingServer (OneOf [compute nodeID product, compute nodeID sum]) $ do
+      enactingServer (OneOf [compute product, compute sum]) $ do
         Message client _ args _ msgLabel <- spinReceive [(addLabel, "compute__Request"), (mulLabel, "compute__Request")]
         let response = if | msgLabel == addLabel -> sum args
                           | msgLabel == mulLabel -> product args
@@ -98,9 +110,8 @@ polynomialServer addLabel mulLabel = loop
       loop
 
 parPolynomialServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m, Par m) => Label -> Label -> m a
-parPolynomialServer addLabel mulLabel = do
-  nodeID <- this
-  enactingServer (OneOf [compute nodeID product, compute nodeID sum]) $ 
+parPolynomialServer addLabel mulLabel =
+  enactingServer (OneOf [compute product, compute sum]) $ 
     par [mulServer mulLabel, addServer addLabel] undefined
 
 data Arith = Arith :+: Arith
@@ -128,18 +139,23 @@ polynomialClient addLabel mulLabel server = go
     go (l :+: r) = do
       l' <- go l
       r' <- go r
-      [ans] <- enactingClient (compute server sum) $ rpcCall addLabel "compute" [l', r'] server
+      [ans] <- enactingClient (compute sum) $ rpcCall addLabel "compute" [l', r'] server
       return ans
     go (l :*: r) = do
       l' <- go l
       r' <- go r
-      [ans] <- enactingClient (compute server product) $ rpcCall mulLabel "compute" [l', r'] server
+      [ans] <- enactingClient (compute product) $ rpcCall mulLabel "compute" [l', r'] server
       return ans
 
 addClient :: (ProtletAnnotations S m, MessagePassing m) => Int -> Int -> NodeID -> m Int
 addClient a b server = do
-  [ans] <- enactingClient (compute server sum) $ 
+  [ans] <- enactingClient (compute sum) $ 
     rpcCall 0 "compute" [a, b] server
+  return ans
+
+addClient' :: MessagePassing m => Label -> Int -> Int -> NodeID -> m Int
+addClient' label a b server = do
+  [ans] <- rpcCall label "compute" [a, b] server
   return ans
 
 initConf :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => ImplNetwork m Int
@@ -153,6 +169,12 @@ initConf = initializeImplNetwork [
     addLabel, mulLabel :: Label
     addLabel = 0
     mulLabel = 1
+
+addConf' :: MessagePassing m => ImplNetwork m Int
+addConf' = initializeImplNetwork [
+    (1, addClient' 0 20 3 0)
+  , (0, addServer' 0) 
+  ]
 
 simpleConf :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => ImplNetwork m Int
 simpleConf = initializeImplNetwork [
