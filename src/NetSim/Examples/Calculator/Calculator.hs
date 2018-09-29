@@ -19,22 +19,22 @@ data S = ClientInit NodeID [Int]
        | ServerReady
        deriving (Show, Eq)
 
-compute :: ([Int] -> Int) -> Protlet f S
+compute :: Alternative f => ([Int] -> Int) -> Protlet f S
 compute f = RPC "compute" clientStep serverStep
   where
     clientStep = \case
       ClientInit server args ->
         Just (server, args, ClientDone)
-      _ -> empty
+      _ -> Nothing
 
     serverStep args = \case
-      ServerReady -> pure ([f args], ServerReady)
-      _ -> empty
+      ServerReady -> Just ([f args], ServerReady)
+      _ -> Nothing
 
 initStates :: Map NodeID S
 initStates = Map.fromList [(0, ServerReady), (1, ClientInit 0 [1,1]), (2, ClientInit 0 [3,2])]
 
-initNetwork :: SpecNetwork f S
+initNetwork :: Alternative f => SpecNetwork f S
 initNetwork = initializeNetwork nodeStates protlets
   where
     addLabel, mulLabel, server :: NodeID
@@ -47,7 +47,7 @@ initNetwork = initializeNetwork nodeStates protlets
     protlets = [(addLabel, [compute sum]),
                 (mulLabel, [compute product])]
 
-simpleNetwork :: SpecNetwork f S                
+simpleNetwork :: Alternative f => SpecNetwork f S                
 simpleNetwork = initializeNetwork nodeStates protlets
   where
     server, client1, client2 :: NodeID
@@ -61,7 +61,7 @@ simpleNetwork = initializeNetwork nodeStates protlets
 
     protlets = [(0, [compute sum])]
 
-addNetwork :: SpecNetwork f S
+addNetwork :: Alternative f => SpecNetwork f S
 addNetwork = initializeNetwork nodeStates protlets
   where
     nodeStates = [ (0, [(0, ServerReady)])
