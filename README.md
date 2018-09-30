@@ -1,4 +1,4 @@
-# Network Simulation
+# Distributed Protocol Combinators
 
 ## Overview
 
