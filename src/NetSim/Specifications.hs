@@ -238,7 +238,7 @@ possibleTransitions ns@NetworkState{..} = do
         BlockingOn _ tag f nodeIDs k ->
           resolveBlock label tag f nodeID inbox nodeIDs k
         Running s -> do
-          (protlet, _) <- oneOf $ _globalState Map.! label
+          protlet <- fst <$> oneOf (_globalState Map.! label)
           stepProtlet nodeID s inbox label protlet
 
 possibleCrashes :: (Monad f, Alternative f) => SpecNetwork f s -> f (Transition s)
@@ -257,11 +257,11 @@ stepNetwork network = applyTransition <$> possibleTransitions network <*> pure n
 simulateNetworkIO :: SpecNetwork [] s -> IO [SpecNetwork [] s]
 simulateNetworkIO n = do
   let nextNs = stepNetwork n
-  case nextNs of 
-    [] -> return [n]
-    _ -> (n:) <$> (simulateNetworkIO =<< pickRandom nextNs)
+  if null nextNs
+    then return [n]
+    else (n:) <$> (simulateNetworkIO =<< pickRandom nextNs)
 
--- Simulate network execution using the list-monad to explore possible states. 
+    -- Simulate network execution using the list-monad to explore possible states. 
 -- Yields a list with the `nth` index containing states after `n` steps of execution.
 simulateNetworkTraces :: SpecNetwork [] s -> [[SpecNetwork [] s]]
 simulateNetworkTraces = go
