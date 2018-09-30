@@ -239,7 +239,7 @@ checkTrace initNetwork trace = case runStateT (go trace) (Init <$> initConf) of
             Just (server, body, k) ->
               if _msgBody msg == body && _msgTo msg == server
                 then at nodeID ?= AwaitingResponseFrom pName server k
-                else fail . concat $ ["Inappropriate request initiating rpc ", pName]
+                else fail . concat $ ["Inappropriate request initiating rpc ", pName, "\nExpected:", show body, " to ", show server, "\nGot: ", show msg]
     checkAction (ClientAction (RPC pName _ _) (ReceiveAction nodeID msg)) = do
       vs <- fromJust <$> use (at nodeID)
       case vs of 

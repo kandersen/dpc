@@ -32,7 +32,7 @@ compute f = RPC "compute" clientStep serverStep
       _ -> Nothing
 
 initStates :: Map NodeID S
-initStates = Map.fromList [(0, ServerReady), (1, ClientInit 0 [1,1]), (2, ClientInit 0 [3,2])]
+initStates = Map.fromList [(0, ServerReady), (1, ClientInit 0 [1,1])]
 
 initNetwork :: Alternative f => SpecNetwork f S
 initNetwork = initializeNetwork nodeStates protlets
@@ -65,7 +65,7 @@ addNetwork :: Alternative f => SpecNetwork f S
 addNetwork = initializeNetwork nodeStates protlets
   where
     nodeStates = [ (0, [(0, ServerReady)])
-                 , (1, [(0, ClientInit 0 [3, 100, 20])])
+                 , (1, [(0, ClientInit 0 [3, 20])])
                   ]
     protlets = [(0, [compute sum])]
     
@@ -77,10 +77,9 @@ addServer' label = do
   send client label "compute__Response" [sum args]
   addServer' label
 
-addServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Label -> m a
+addServer :: (ProtletAnnotations S m, MessagePassing m) => Label -> m a
 addServer label = loop
   where
-    loop :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => m a
     loop = do
       enactingServer (compute sum) $ do
         Message client _ args _ _ <- spinReceive [(label, "compute__Request")]
@@ -147,10 +146,10 @@ polynomialClient addLabel mulLabel server = go
       [ans] <- enactingClient (compute product) $ rpcCall mulLabel "compute" [l', r'] server
       return ans
 
-addClient :: (ProtletAnnotations S m, MessagePassing m) => Int -> Int -> NodeID -> m Int
-addClient a b server = do
+addClient :: (ProtletAnnotations S m, MessagePassing m) => Label -> Int -> Int -> NodeID -> m Int
+addClient label a b server = do
   [ans] <- enactingClient (compute sum) $ 
-    rpcCall 0 "compute" [a, b] server
+    rpcCall label "compute" [a, b] server
   return ans
 
 addClient' :: MessagePassing m => Label -> Int -> Int -> NodeID -> m Int
@@ -170,16 +169,16 @@ initConf = initializeImplNetwork [
     addLabel = 0
     mulLabel = 1
 
-addConf' :: MessagePassing m => ImplNetwork m Int
-addConf' = initializeImplNetwork [
-    (1, addClient' 0 20 3 0)
-  , (0, addServer' 0) 
+addConf :: (ProtletAnnotations S m, MessagePassing m) => ImplNetwork m Int
+addConf = initializeImplNetwork [
+    (1, addClient 0 3 20 0)
+  , (0, addServer 0) 
   ]
 
 simpleConf :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => ImplNetwork m Int
 simpleConf = initializeImplNetwork [
-          (client2, addClient 3 2 server)
-        , (client1, addClient 1 1 server)
+          (client2, addClient 0 3 2 server)
+        , (client1, addClient 0 1 1 server)
         , (server, addServer 0) 
         ]
   where

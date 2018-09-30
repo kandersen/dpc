@@ -35,7 +35,14 @@ data Protlet f s =
   | Broadcast    String          (Broadcast s)  (Receive s) (Send f s) 
   | Quorum       String Rational (Broadcast s)  (Receive s) (Send f s)
   | OneOf        [Protlet f s]
-  deriving (Show)
+
+instance Show (Protlet f s) where
+  show (RPC n _ _) = "RPC:" ++ n
+  show (ARPC n _ _ _) = "ARPC:" ++ n
+  show (Notification n _ _) = "Notification:" ++ n
+  show (Broadcast n _ _ _) = "Broadcast:" ++ n
+  show (Quorum n _ _ _ _) = "Quorom:" ++ n
+  show (OneOf ps) = "OneOf:" ++ show ps 
 
 type ClientStep s = s -> Maybe (NodeID, [Int], [Int] -> s)
 type ServerStep s = [Int] -> s -> Maybe ([Int], s)
