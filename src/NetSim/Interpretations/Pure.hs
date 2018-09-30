@@ -227,7 +227,10 @@ checkTrace initNetwork trace = case runStateT (go trace) (Init <$> initConf) of
         SyncServerFor _ client resp s' -> 
           if (_msgTo msg == client) && (_msgBody msg == resp) && (_msgTag msg == (pName ++ "__Response"))
             then at nodeID ?= Init s'
-            else fail "The server response did not follow the protocol"
+            else fail . concat $ [
+              "The server response did not follow the protocol from state: ", show s', "\n",
+              "\tExpected: ", show resp,"\n",
+              "\tGot: ", show $ _msgBody msg]
     checkAction (ServerAction _ (InternalAction _)) = return ()
 
     checkAction (ClientAction (RPC pName clientStep _) (SendAction nodeID msg)) = do
@@ -235,7 +238,7 @@ checkTrace initNetwork trace = case runStateT (go trace) (Init <$> initConf) of
       case vs of
         Init s ->
           case clientStep s of
-            Nothing -> fail . concat $ ["Node expected to initiate rpc ", pName]
+            Nothing -> fail . concat $ ["Node expected to initiate rpc ", pName, "\nNode is in state: ", show s]
             Just (server, body, k) ->
               if _msgBody msg == body && _msgTo msg == server
                 then at nodeID ?= AwaitingResponseFrom pName server k
