@@ -63,16 +63,13 @@ instance ProtletAnnotations s (SocketRunnerT m) where
   enactingServer _ m = m
   enactingClient _ m = m
 
-instance (MonadIO m, Monad m) => MessagePassing (SocketRunnerT m) where
+instance (MonadIO m) => MessagePassing (SocketRunnerT m) where
   send to lbl tag body = do
     thisID <- NetSim.Language.this
     let p = encode $ Message thisID tag body to lbl
-    let n = BS.length p
     peerSocket <- (!to) <$> view addressBook
-    sent <- liftIO $ Socket.send peerSocket p mempty
-    when (n /= sent) $
-      liftIO . putStrLn $ "Whoops, sent " ++ show sent ++ " but expected " ++ show n ++ "."
-
+    void . liftIO $ Socket.send peerSocket p mempty
+    
   receive candidates = do
     inboxChan <- view inbox
     mmsg <- liftIO . atomically $ tryReadTChan inboxChan

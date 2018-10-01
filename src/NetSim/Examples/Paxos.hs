@@ -10,6 +10,7 @@ import           NetSim.Language
 import           NetSim.Util
 
 import           Control.Monad   (forM_)
+import           Control.Monad.State
 import           Data.Maybe      (fromMaybe)
 import           Data.Ratio
 
@@ -28,7 +29,6 @@ data PState = ProposerInit   Int      -- Ballot
                              [NodeID] -- Acceptors
                              Int      -- Highest-ballot value from acceptors
             | ProposerDone   Int      -- The settled value
-
             | Acceptor AcceptorState
             deriving Show
 
@@ -149,7 +149,16 @@ initNetwork = initializeNetwork nodeStates protlets
     label :: Label
     label = 0
 
--- Round-Based Register
+-- Direct Implementation
+
+proposer' :: (MessagePassing m, ProtletAnnotations PState m) => Int -> Int -> m Int
+proposer' = undefined
+
+acceptor' :: (MessagePassing m, ProtletAnnotations PState m, MonadState (Int,Int) m) => (Int -> m Bool) -> Int -> m Int
+acceptor' = undefined
+
+
+-- Round-Based Register Implementation
 
 readRBR :: MessagePassing m => Label -> [NodeID] -> Int -> m (Bool, Maybe Int)
 readRBR lbl participants r = do
