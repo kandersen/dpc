@@ -16,6 +16,7 @@ dependencies:
   - cereal
   - stm
   - random
+  - mmorph
 
 library:
   exposed-modules: 

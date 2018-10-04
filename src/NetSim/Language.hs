@@ -2,11 +2,13 @@
 {-# LANGUAGE TypeFamilies    #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE FlexibleInstances #-}
 module NetSim.Language where
 
 import           Data.Foldable
 import           Data.Maybe    (isJust)
 import           Data.Map as Map
+import           Control.Monad.State
 
 import NetSim.Types
 import NetSim.Specifications
@@ -41,6 +43,15 @@ class Monad m => SharedMemory m where
 isReceivable :: Message -> [(Label, String)] -> Bool
 isReceivable Message{..} = isJust . find (\(lbl,t) -> _msgLabel == lbl && _msgTag == t)
 
+-- Instances
+instance MessagePassing m => MessagePassing (StateT s m) where
+  send n l t m = lift $ send n l t m
+  receive = lift . receive
+
+instance ProtletAnnotations a m => ProtletAnnotations a (StateT s m) where
+  enactingClient p m = StateT $ runStateT (enactingClient p m)
+  enactingServer p m = StateT $ runStateT (enactingServer p m)
+
 --
 -- Compound operations
 --
@@ -58,22 +69,23 @@ rpcCall label protlet body to = do
   Message{..} <- spinReceive [(label, protlet ++ "__Response")]
   return _msgBody
 
-broadcastQuorom :: (MessagePassing m, Ord fraction, Fractional fraction) =>
-  fraction -> Label -> String -> [Int] -> [NodeID] -> m [Message]
-broadcastQuorom fraction label protlet body receivers = do
+broadcastQuorom :: (MessagePassing m) =>
+  Rational -> Label -> String -> [Int] -> [NodeID] -> m [Message]
+broadcastQuorom responsesNeeded label protlet body receivers = do
   traverse_ (\to -> send to label (protlet ++ "__Broadcast") body) receivers
   spinForResponses []
   where
     spinForResponses resps
-      | fromIntegral (length resps) >= fraction * fromIntegral (length receivers) =
-         return resps
+      | fromIntegral (length resps) >= responsesNeeded =
+          return resps
       | otherwise = do
           resp <- spinReceive [(label, protlet ++ "__Response")]
           spinForResponses (resp:resps)
 
 broadcast :: (MessagePassing m) =>
   Label -> String -> [Int] -> [NodeID] -> m [Message]
-broadcast = broadcastQuorom (1 :: Double)
+broadcast label protlet body receivers = 
+  broadcastQuorom (fromIntegral $ length receivers) label protlet body receivers
 
 ---
 -- Network description

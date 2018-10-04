@@ -31,7 +31,6 @@ import           Lens.Micro.Mtl
 import           Lens.Micro.TH
 
 import           Data.ByteString            (ByteString)
-import qualified Data.ByteString            as BS
 import           Data.Serialize
 
 type DSocket = Socket Inet Stream TCP

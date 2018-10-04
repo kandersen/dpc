@@ -1,7 +1,10 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module NetSim.Examples.Paxos where
 
 import           NetSim.Types
@@ -11,8 +14,10 @@ import           NetSim.Util
 
 import           Control.Monad   (forM_)
 import           Control.Monad.State
+import           Control.Monad.Morph
 import           Data.Maybe      (fromMaybe)
 import           Data.Ratio
+import           Control.Monad.Trans
 
 -- Specification
 {-
@@ -151,12 +156,68 @@ initNetwork = initializeNetwork nodeStates protlets
 
 -- Direct Implementation
 
-proposer' :: (MessagePassing m, ProtletAnnotations PState m) => Int -> Int -> m Int
-proposer' = undefined
+proposer' :: (MessagePassing m, ProtletAnnotations PState m) => Label -> m [NodeID] -> m Int -> m Int -> m Int
+proposer' label getAcceptors getBallot getValue = do
+  acceptors <- getAcceptors
+  ballot <- getBallot
+  poll <- enactingClient (prepare label $ length acceptors) $ 
+    broadcastQuorom (fromIntegral (length acceptors) / 2 + 1) label "propose" [ballot] acceptors
+  v <- getValue
+  let acceptedValue = findHighestBallotedValue (ballot, v) . concatMap extractVote $ poll
+  enactingClient commit $ 
+    broadcastQuorom 0 label "commit" [ballot, acceptedValue] acceptors
+  return acceptedValue
+  where
+    extractVote Message{..} = case _msgBody of
+      [] -> []
+      [_] -> []
+      [b',w] -> [(b', w)]
 
-acceptor' :: (MessagePassing m, ProtletAnnotations PState m, MonadState (Int,Int) m) => (Int -> m Bool) -> Int -> m Int
-acceptor' = undefined
+acceptor' :: (MessagePassing m, ProtletAnnotations PState m) => 
+   Label -> m a
+acceptor' label = evalStateT loop Nothing
+  where
+    loop :: (MessagePassing m, ProtletAnnotations PState m, MonadState (Maybe (Either Int (Int, Int))) m) =>  m a
+    loop = do
+      enactingServer (OneOf [prepare label undefined, commit]) $ do
+        Message{..} <- spinReceive [(label, "propose__Broadcast"), (label, "commit__Broadcast")]
+        case _msgTag of
+          "commit__Broadcast" -> do
+            astate <- get
+            case (astate, _msgBody) of
+              (Just (Left b), [b', w]) | b == b' -> 
+                put $ Just (Right (b', w))
+              _ -> return ()
+          "prepare__Broadcast" -> do
+            astate <- get
+            case astate of
+              Nothing -> 
+                send _msgFrom label "propose__Response" []
+              Just (Left b) | [b'] <- _msgBody ->
+                if b' > b
+                  then do
+                    put $ Just (Left b') 
+                    send _msgFrom label "propose__Response" [b]
+                  else 
+                    send _msgFrom label "propose__Response" []                
+              Just (Right (b, v)) | [b'] <- _msgBody ->
+                if b' > b
+                  then do 
+                    put $ Just (Left b')
+                    send _msgFrom label "propose__Response" [b, v]
+                  else
+                    send _msgFrom label "propose__Response" []
+      loop
 
+initConf :: (MessagePassing m, ProtletAnnotations PState m) => ImplNetwork m Int
+initConf = initializeImplNetwork [
+   (0, proposer' 0 (return [1, 2, 3]) (return 0) (return 0))
+ , (1, acceptor' 0)
+ , (2, acceptor' 0)
+ , (3, acceptor' 0)
+ , (4, proposer' 0 (return [1, 2, 3]) (return 4) (return 42))
+ , (5, proposer' 0 (return [1, 2, 3]) (return 5) (return 117))
+ ] 
 
 -- Round-Based Register Implementation
 
@@ -260,11 +321,3 @@ proposeP lbl participants v0 = do
       if res
         then return (fromMaybe (error "Shouldn't happen!") v)
         else loopTillSucceed (k + length participants)
-
-
-initConf :: (NetworkNode m, MessagePassing m) => ImplNetwork m Int
-initConf = initializeImplNetwork [
-          (0, proposeP 0 [1, 2] 42)
-        , (1, acceptor 0)
-        , (2, acceptor 0)
-      ]
