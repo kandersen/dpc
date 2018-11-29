@@ -204,6 +204,9 @@ checkTrace initNetwork trace = case runStateT (go trace) (Init <$> initConf) of
   where
     initConf = Map.fromList [ (k, s) | (k, (v,_,_)) <- Map.assocs $ _localStates initNetwork, Running s <- [v Map.! 0]]
 
+    stateOfNode :: NodeID -> ValidationM s (ValidationState s)
+    stateOfNode = fmap fromJust . use . at
+
     go :: Show s => [TraceAction s] -> ValidationM s ()
     go ts = sequence_ $ checkAction <$> ts
 
@@ -253,5 +256,11 @@ checkTrace initNetwork trace = case runStateT (go trace) (Init <$> initConf) of
         AwaitingResponseFrom pName' _ _ | pName == pName' ->
           fail . concat $ ["Expected reception on protlet", pName', "but got message tagged ", _msgTag msg]
     checkAction (ClientAction _ (InternalAction _)) = return ()
-    
-    checkAction act = fail . concat $ ["Unimplemented trace action", show act]
+    checkAction (ClientAction (Quorum pName _ broadcast _ _) (SendAction nodeID msg)) = do
+      vs <- stateOfNode nodeID
+      case vs of 
+        Init s ->
+          error $ "Unimplemented broadcast, first send action"
+        Broadcasting s ->
+            error $ "Unimplemented broadcast, subsequen send action"
+      checkAction act = fail . concat $ ["Unimplemented trace action", show act]

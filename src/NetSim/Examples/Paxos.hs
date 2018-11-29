@@ -188,7 +188,7 @@ acceptor' label = evalStateT loop Nothing
               (Just (Left b), [b', w]) | b == b' -> 
                 put $ Just (Right (b', w))
               _ -> return ()
-          "prepare__Broadcast" -> do
+          "propose__Broadcast" -> do
             astate <- get
             case astate of
               Nothing -> 
@@ -207,6 +207,7 @@ acceptor' label = evalStateT loop Nothing
                     send _msgFrom label "propose__Response" [b, v]
                   else
                     send _msgFrom label "propose__Response" []
+          _ -> error $ "Acceptor' unexpected tag -- " ++ _msgTag
       loop
 
 initConf :: (MessagePassing m, ProtletAnnotations PState m) => ImplNetwork m Int

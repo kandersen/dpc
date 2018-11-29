@@ -49,8 +49,8 @@ instance MessagePassing m => MessagePassing (StateT s m) where
   receive = lift . receive
 
 instance ProtletAnnotations a m => ProtletAnnotations a (StateT s m) where
-  enactingClient p m = StateT $ runStateT (enactingClient p m)
-  enactingServer p m = StateT $ runStateT (enactingServer p m)
+  enactingClient p m = StateT (enactingClient p . runStateT m)
+  enactingServer p m = StateT (enactingServer p . runStateT m)
 
 --
 -- Compound operations
