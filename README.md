@@ -36,9 +36,9 @@ There's a `try` function for each component of protlets, returning an `f` full o
 
 ### NetSim.Invariant
 
-This module describes a lanaguage a language for writing inductive invariants for state machines expressed using the NetSim.Core module, the idea being that the protocol can be checked against the invariant.
+This module describes a language for writing inductive invariants for state machines expressed using the NetSim.Core module, the idea being that the protocol can be checked against the invariant.
 
-An invariant is simply a boolean predicate on a network, paramterised by a protlet instance label and some protocol specific `metadata`, i.e. to capture 'roles' or other protocol specific properties.
+An invariant is simply a boolean predicate on a network, parameterised by a protlet instance label and some protocol specific `metadata`, i.e. to capture 'roles' or other protocol specific properties.
 
 The module then supplies simple combinators for expressing a property on nodes, messages in the soup etc.
 
