@@ -6,15 +6,15 @@ import           NetSim.Examples.Calculator.Calculator
 import           NetSim.Interpretations.WebSockets
 
 import           System.Environment                    (getArgs)
+import Control.Monad (void)
 
 main :: IO ()
 main = do
     putStrLn "PolyServer Start"
     [ndPath] <- getArgs
     putStrLn $ "Getting network description from " ++ ndPath
-    nd <- networkDescriptionFromFile ndPath
     putStrLn "Starting server..."
-    defaultMain nd serverNodeID (polynomialServer addInstance mulInstance)
+    runP2P ndPath serverNodeID (void $ polynomialServer addInstance mulInstance)
   where
     serverNodeID :: NodeID
     addInstance, mulInstance :: Label

@@ -34,9 +34,8 @@ main = do
   putStrLn "PolyClient Start"
   [ndPath] <- getArgs
   putStrLn $ "Getting network description from " ++ ndPath
-  nd <- networkDescriptionFromFile ndPath
   putStrLn "Starting client..."
-  defaultMain nd clientNodeID (forever clientWrapper)
-  where
-    clientNodeID :: NodeID
-    clientNodeID = 2
+  runP2P ndPath clientNodeID (void $ forever clientWrapper)
+    where
+      clientNodeID :: NodeID
+      clientNodeID = 2

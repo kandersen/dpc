@@ -37,6 +37,17 @@ type DSocket = Socket Inet Stream TCP
 
 type NetworkDescription = Map NodeID (SocketAddress Inet)
 
+parseSocketAddr :: (ByteString, ByteString) -> IO (SocketAddress Inet)
+parseSocketAddr (bs, port) = socketAddress . head <$> (getAddressInfo (Just bs) (Just port) mempty :: IO [AddressInfo Inet Stream TCP])
+
+parseNetworkDescription :: String -> IO NetworkDescription
+parseNetworkDescription input = do
+  let rawMap :: Map NodeID (ByteString, ByteString) = read input
+  traverse parseSocketAddr rawMap
+
+networkDescriptionFromFile :: FilePath -> IO NetworkDescription
+networkDescriptionFromFile fp = readFile fp >>= parseNetworkDescription
+
 data NetworkContext = NetworkContext {
     _this        :: NodeID,
     _addressBook :: Map NodeID DSocket,
@@ -44,15 +55,57 @@ data NetworkContext = NetworkContext {
 }
 makeLenses ''NetworkContext
 
+establishMesh :: NodeID -> NetworkDescription -> IO NetworkContext
+establishMesh thisID nd = do
+  mySocket <- socket :: IO DSocket
+  setSocketOption mySocket (ReuseAddress True)
+  setSocketOption mySocket (KeepAlive True)
+  bind mySocket (nd ! thisID)
+  listen mySocket (Map.size nd - 1)
+  putStrLn $ "Listening on " ++ show (nd ! thisID) ++ "..."
+  emptyInbox <- newTChanIO
+  res <- execStateT (go mySocket $ Map.keys nd) (NetworkContext thisID Map.empty emptyInbox)
+  close mySocket
+  return res
+    where
+      go :: DSocket -> [NodeID] -> StateT NetworkContext IO ()
+      go        _         [] = return ()
+      go mySocket (nid:nids) = do
+        if nid == thisID
+          then do
+            lift $ putStrLn "Accepting Peers"
+            acceptConnectionForPeers mySocket (delete thisID $ Map.keys nd)
+          else do
+            lift . putStrLn $ "Connecting to " ++ show nid
+            peerSocket <-lift $ retryConnect (nd ! nid)
+            lift . void $ Socket.send peerSocket (encode thisID) mempty
+            addressBook %= Map.insert nid peerSocket
+        go mySocket nids
+
+      retryConnect :: SocketAddress Inet -> IO DSocket
+      retryConnect a = do
+        peerSocket :: DSocket <- socket
+        (Socket.connect peerSocket a >> return peerSocket) `catch` \(_ :: SocketException) -> close peerSocket >> retryConnect a
+
+      acceptConnectionForPeers :: DSocket -> [NodeID] -> StateT NetworkContext IO ()
+      acceptConnectionForPeers        _ [] = return ()
+      acceptConnectionForPeers mySocket ps = do
+        (peerSocket, peerAddr) <- lift $ accept mySocket
+        lift $ setSocketOption peerSocket (KeepAlive True)
+        peerID <- lift $ either error id . decode <$> Socket.receive peerSocket 8 mempty
+        lift . putStrLn $ "Accepted connection from " ++ show peerID ++ " @ " ++ show peerAddr
+        addressBook %= Map.insert peerID peerSocket
+        acceptConnectionForPeers mySocket (delete peerID ps)
+
 newtype SocketRunnerT m a = SocketRunnerT {
     runSocketRunnerT :: ReaderT NetworkContext m a }
     deriving (
-     Functor,
-     Applicative,
-     Monad,
-     MonadTrans,
-     MonadIO,
-     MonadReader NetworkContext
+      Functor,
+      Applicative,
+      Monad,
+      MonadTrans,
+      MonadIO,
+      MonadReader NetworkContext
     )
 
 instance Monad m => NetworkNode (SocketRunnerT m) where
@@ -103,78 +156,13 @@ mailman = do
             Right m -> return m
             Left _  -> go ss
 
-establishMesh :: NodeID -> NetworkDescription -> IO NetworkContext
-establishMesh thisID nd = do
-  mySocket <- socket :: IO DSocket
-  setSocketOption mySocket (ReuseAddress True)
-  setSocketOption mySocket (KeepAlive True)
-  bind mySocket (nd ! thisID)
-  listen mySocket (Map.size nd - 1)
-  print $ "Listening on " ++ show (nd ! thisID) ++ "..."
-  emptyInbox <- newTChanIO
-  res <- execStateT (go mySocket $ Map.keys nd) (NetworkContext thisID Map.empty emptyInbox)
-  close mySocket
-  return res
-  where
-    go :: DSocket -> [NodeID] -> StateT NetworkContext IO ()
-    go        _ [] = return ()
-    go mySocket (nid:nids) = do
-      if nid == thisID
-        then do
-          lift $ print "My turn!"
-          acceptConnectionForPeers mySocket (delete thisID $ Map.keys nd)
-        else do
-          lift . print $ "Connecting to " ++ show nid
-          peerSocket <-lift $ retryConnect (nd ! nid)
-          sentBytes <- lift $ Socket.send peerSocket (encode thisID) mempty
-          lift . print $ "Sent " ++ show sentBytes ++ " to peer!"
-          addressBook %= Map.insert nid peerSocket
-      go mySocket nids
-
-    retryConnect :: SocketAddress Inet -> IO DSocket
-    retryConnect a = do
-      peerSocket :: DSocket <- socket
-      (Socket.connect peerSocket a >> return peerSocket) `catch` \(_ :: SocketException) -> close peerSocket >> retryConnect a
-
-    acceptConnectionForPeers :: DSocket -> [NodeID] -> StateT NetworkContext IO ()
-    acceptConnectionForPeers        _ [] = return ()
-    acceptConnectionForPeers mySocket ps = do
-      (peerSocket, peerAddr) <- lift $ accept mySocket
-      lift $ setSocketOption peerSocket (KeepAlive True)
-      peerID <- lift $ either error id . decode <$> Socket.receive peerSocket 8 mempty
-      lift $ print ("Accepted connection from " ++ show peerID ++ " @ " ++ show peerAddr)
-      addressBook %= Map.insert peerID peerSocket
-      acceptConnectionForPeers mySocket (delete peerID ps)
-
-parseSocketAddr :: (ByteString, ByteString) -> IO (SocketAddress Inet)
-parseSocketAddr (bs, port) = socketAddress . head <$> (getAddressInfo (Just bs) (Just port) mempty :: IO [AddressInfo Inet Stream TCP])
-
-parseNetworkDescription :: String -> IO NetworkDescription
-parseNetworkDescription input = do
-  let rawMap :: Map NodeID (ByteString, ByteString) = read input
-  traverse parseSocketAddr rawMap
-
-releaseNetworkContext :: NetworkContext -> IO ()
-releaseNetworkContext = traverse_ Socket.close . Map.elems . _addressBook
-
-defaultMain :: NetworkDescription -> NodeID -> SocketRunner a -> IO ()
-defaultMain nd thisID program =
+runP2P :: Show a => FilePath -> NodeID -> SocketRunner a -> IO ()
+runP2P ndPath thisID program = do
+  nd <- networkDescriptionFromFile ndPath
   bracket (establishMesh thisID nd) releaseNetworkContext $ \netctxt -> do
     mailmanThread <- forkIO $ run netctxt mailman
-    void $ run netctxt program
+    print =<< run netctxt program
     killThread mailmanThread
 
-networkDescriptionFromFile :: FilePath -> IO NetworkDescription
-networkDescriptionFromFile fp = readFile fp >>= parseNetworkDescription
-
-spamInstance :: Label
-spamInstance = 0
-
-echoBot :: SocketRunner ()
-echoBot = forever $ do
-  msg <- spinReceive [(spamInstance, "")]
-  liftIO $ print msg
-
-spamBot :: NodeID -> Int -> SocketRunner ()
-spamBot to body = forever $
-  NetSim.Language.send to spamInstance "" [body]
+  where
+    releaseNetworkContext = traverse_ Socket.close . Map.elems . _addressBook

@@ -141,12 +141,11 @@ initNetwork :: Alternative f => SpecNetwork f PState
 initNetwork = initializeNetwork nodeStates protlets
   where
     nodeStates :: [(NodeID, [(NodeID, PState)])]
-    nodeStates = [ (0, [(label, ProposerInit 0 0 [1, 2, 3])])
-                 , (1, [(label, acceptorInit)])
+    nodeStates = [ (0, [(label, ProposerInit 0 0 [2, 3, 4])])
+                 , (1, [(label, ProposerInit 1 42 [2, 3, 4])])
                  , (2, [(label, acceptorInit)])
                  , (3, [(label, acceptorInit)])
-                 , (4, [(label, ProposerInit 4 42 [1, 2, 3])])
-                 , (5, [(label, ProposerInit 5 117 [1, 2, 3])])
+                 , (4, [(label, acceptorInit)])
                  ]
     protlets :: Alternative f => [(NodeID, [Protlet f PState])]
     protlets = [(label, [prepare label 3, commit])]

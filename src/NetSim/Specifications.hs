@@ -104,19 +104,19 @@ resolveBlock label tag responsesNeeded nodeID inbox responders k = do
   -- Then weed the ones without sufficient number of responses
   guard $ fromIntegral (length responses) >= responsesNeeded
   pure $ ReceivedMessages label nodeID responses (Running $ k (arrange <$> responses)) inbox'
-  where
-    findResponses :: (Monad m, Alternative m) => [Message] -> [NodeID] -> m ([Message], [Message])
-    findResponses rest     [] = pure ([], rest)
-    findResponses rest (r:rs) = (do
-      (response, inbox') <- oneOfP (isResponseFrom r) rest
-      (_1 %~ (response:)) <$> findResponses inbox' rs)
-      <|> 
-      findResponses rest rs
+    where
+      findResponses :: (Monad m, Alternative m) => [Message] -> [NodeID] -> m ([Message], [Message])
+      findResponses rest     [] = pure ([], rest)
+      findResponses rest (r:rs) = (do
+        (response, inbox') <- oneOfP (isResponseFrom r) rest
+        (_1 %~ (response:)) <$> findResponses inbox' rs)
+        <|> 
+        findResponses rest rs
 
-    isResponseFrom from Message{..} = _msgFrom == from && _msgTag == tag && _msgLabel == label
+      isResponseFrom from Message{..} = _msgFrom == from && _msgTag == tag && _msgLabel == label
 
-    arrange :: Message -> (NodeID, [Int])
-    arrange m = (_msgFrom m, _msgBody m)
+      arrange :: Message -> (NodeID, [Int])
+      arrange m = (_msgFrom m, _msgBody m)
 
 tryClientStep :: (Alternative m) =>
   Label -> String -> ClientStep s -> NodeID -> s -> [Message] -> m (Transition s)

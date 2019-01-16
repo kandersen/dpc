@@ -184,6 +184,9 @@ runPure initConf = go (cycle $ nodes initConf) initConf
       let conf' = conf { _localStates = states', _globalState = soup' }
       ((act, conf'):) <$> go schedule' $ conf'
 
+roundRobinTrace :: ImplNetwork (DiSeL s) a -> [TraceAction s]
+roundRobinTrace = fmap fst . runPure
+
 --
 -- Model Checking
 --
@@ -191,9 +194,11 @@ runPure initConf = go (cycle $ nodes initConf) initConf
 type ValidationError = String
 
 data ValidationState s = Init s
-                       | SyncServerFor String NodeID [Int] s
-                       | AwaitingResponseFrom String NodeID ([Int] -> s)
-                      deriving (Show)
+                       | SyncServerFor String NodeID [Int] s                       
+                       | AwaitingResponseFrom String NodeID ([Int] -> s)                      
+                       | AsyncServerFor String NodeID s
+                       | Broadcasting s
+                       deriving (Show)
 
 type ValidationM s a = StateT (Map NodeID (ValidationState s)) (Either ValidationError) a
 
@@ -216,6 +221,7 @@ checkTrace initNetwork trace = case runStateT (go trace) (Init <$> initConf) of
       fail "Sending outside of protocol annotations!"
     checkAction (ReceiveAction _ _) =
       fail "Receiving outside of protocol annotations!"
+
     checkAction (ServerAction (RPC pName _ serverStep) (ReceiveAction nodeID msg)) = do
       vs <- fromJust <$> use (at nodeID)
       case vs of 
@@ -234,7 +240,7 @@ checkTrace initNetwork trace = case runStateT (go trace) (Init <$> initConf) of
               "The server response did not follow the protocol from state: ", show s', "\n",
               "\tExpected: ", show resp,"\n",
               "\tGot: ", show $ _msgBody msg]
-    checkAction (ServerAction _ (InternalAction _)) = return ()
+        _ -> fail $ "Expected to serve RPC " ++ pName 
 
     checkAction (ClientAction (RPC pName clientStep _) (SendAction nodeID msg)) = do
       vs <- fromJust <$> use (at nodeID) 
@@ -255,12 +261,57 @@ checkTrace initNetwork trace = case runStateT (go trace) (Init <$> initConf) of
             else fail . concat $ ["Expected reception of response at client in RPC", pName]
         AwaitingResponseFrom pName' _ _ | pName == pName' ->
           fail . concat $ ["Expected reception on protlet", pName', "but got message tagged ", _msgTag msg]
+
+    checkAction (ClientAction (ARPC pName clientStep _ _) (SendAction nodeID msg)) = do
+      vs <- fromJust <$> use (at nodeID) 
+      case vs of
+        Init s ->
+          case clientStep s of
+            Nothing -> fail . concat $ ["Node expected to initiate ARPC ", pName, "\nNode is in state: ", show s]
+            Just (server, body, k) ->
+              if _msgBody msg == body && _msgTo msg == server
+                then at nodeID ?= AwaitingResponseFrom pName server k
+                else fail . concat $ ["Inappropriate request initiating ARPC ", pName, "\n\tExpected:", show body, " to ", show server, "\nGot: ", show msg]
+    checkAction (ClientAction (ARPC pName _ _ _) (ReceiveAction nodeID msg)) = do
+      vs <- fromJust <$> use (at nodeID)
+      case vs of 
+        AwaitingResponseFrom pName' server k | pName == pName' ->
+          if _msgFrom msg == server && _msgTag msg == pName ++ "__Response"
+            then at nodeID ?= Init (k $ _msgBody msg)
+            else fail . concat $ ["Expected reception of response at client in ARPC", pName]
+        AwaitingResponseFrom pName' _ _ | pName == pName' ->
+          fail . concat $ ["Expected reception on protlet", pName', "but got message tagged ", _msgTag msg]
+
+    checkAction (ServerAction (ARPC pName _ receiveStep _) (ReceiveAction nodeID msg)) = do
+      vs <- fromJust <$> use (at nodeID)
+      case vs of 
+        Init s ->
+          case receiveStep msg s of
+            Nothing -> fail . concat $ ["Expecting node ", show nodeID, " to serve ARPC ", pName]
+            Just s' -> 
+              at nodeID ?= AsyncServerFor pName (_msgFrom msg) s'
+    checkAction (ServerAction (ARPC pName _ _ sendStep) (SendAction nodeID msg)) = do
+      vs <- fromJust <$> use (at nodeID)
+      case vs of
+        AsyncServerFor _ client s -> 
+          case sendStep nodeID s of
+            (resp, s'):_ -> 
+              if (_msgTo msg == client) && (_msgBody msg == _msgBody resp) && (_msgTag msg == (pName ++ "__Response"))
+                then at nodeID ?= Init s'
+                else fail . concat $ [
+                  "The server response did not follow the protocol from state: ", show s', "\n",
+                  "\tExpected: ", show resp,"\n",
+                  "\tGot: ", show msg]
+        _ -> fail $ "Expected to serve ARPC " ++ pName
+
     checkAction (ClientAction _ (InternalAction _)) = return ()
+    checkAction (ServerAction _ (InternalAction _)) = return ()
+
     checkAction (ClientAction (Quorum pName _ broadcast _ _) (SendAction nodeID msg)) = do
       vs <- stateOfNode nodeID
       case vs of 
         Init s ->
-          error $ "Unimplemented broadcast, first send action"
+          error "Unimplemented broadcast, first send action"
         Broadcasting s ->
-            error $ "Unimplemented broadcast, subsequen send action"
-      checkAction act = fail . concat $ ["Unimplemented trace action", show act]
+          error "Unimplemented broadcast, subsequent send action"
+    checkAction act = fail . concat $ ["Unimplemented trace action", show act]

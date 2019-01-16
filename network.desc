@@ -1,5 +1,4 @@
 fromList [
-    (1, ("localhost", "45131")),
-    (2, ("localhost", "45231")),
-    (3, ("localhost", "45333"))
+    (0, ("localhost", "45131")),
+    (1, ("localhost", "45231"))
 ]

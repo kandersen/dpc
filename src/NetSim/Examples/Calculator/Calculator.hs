@@ -41,8 +41,9 @@ initNetwork = initializeNetwork nodeStates protlets
     addLabel = 0
     mulLabel = 1
     server = 0
+    client = 1
     nodeStates = [ (server, [(addLabel, ServerReady), (mulLabel, ServerReady)])
-                 , (1, [(addLabel, ClientInit server [1, 1])])
+                 , (client, [(addLabel, ClientInit server [1, 1])])
                  ]
     protlets = [(addLabel, [compute sum]),
                 (mulLabel, [compute product])]
@@ -80,10 +81,11 @@ addServer' label = do
 addServer :: (ProtletAnnotations S m, MessagePassing m) => Label -> m a
 addServer label = loop
   where
+    loop :: (ProtletAnnotations S m, MessagePassing m) => m a
     loop = do
       enactingServer (compute sum) $ do
-        Message client _ args _ _ <- spinReceive [(label, "compute__Request")]
-        send client label "compute__Response" [sum args]
+        Message client _ args _ _ <- spinReceive [(label, "compute__Request")];
+        send client label "compute__Response" [sum args]    
       loop
 
 mulServer :: (ProtletAnnotations S m, MessagePassing m, NetworkNode m) => Label -> m a
@@ -148,7 +150,7 @@ polynomialClient addLabel mulLabel server = go
 
 addClient :: (ProtletAnnotations S m, MessagePassing m) => Label -> Int -> Int -> NodeID -> m Int
 addClient label a b server = do
-  [ans] <- enactingClient (compute sum) $ 
+  [ans] <- enactingClient (compute sum) $ do
     rpcCall label "compute" [a, b] server
   return ans
 
