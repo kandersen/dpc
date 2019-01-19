@@ -26,7 +26,6 @@ library:
     - NetSim.Language
     - NetSim.Examples.Calculator.Calculator
     - NetSim.Interpretations.WebSockets
-    - NetSim.Examples.PADL
   source-dirs: src
 
 executables:
