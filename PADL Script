@@ -1,0 +1,28 @@
+PADL Script
+
+Program (compute sum) specification
+  - simple two-participant calculator example
+
+Demonstrate exploratory execution using GUI
+  - show with 1, then more, clients around the same server.
+
+Program (compute sum) implementations
+  - naive, straightforward implementations.
+
+Demonstrate real execution using WebSockets over mesh network
+
+Produce a trace of actions using the simulator.
+
+Tie the program to the specification with annotations.
+
+Observe a decorated trace of actions.
+
+Check the trace corresponds to the specification.
+	
+Confirm that erroneous implementations are rejected:
+  - run client twice
+  - make a mistake in the server implementation; e.g. compute product instead of sum
+
+Observe that these are indeed single checked traces, not general reasoning: when sum and product coincide, it's fine.
+
+Demonstrate QuickCheck to exorcise the error above.

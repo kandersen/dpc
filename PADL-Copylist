@@ -1,0 +1,49 @@
+mkResp :: NodeID -> NodeID -> Int -> Message
+mkResp t from payload = Message {
+  _msgFrom = t,
+  _msgTo = from,
+  _msgTag = "compute__Response",
+  _msgBody = [payload],
+  _msgLabel = 0
+}
+
+addNetwork :: Alternative f => SpecNetwork f S
+addNetwork = initializeNetwork nodeStates protlets
+  where
+    nodeStates = [ (0, [(0, ServerReady)])
+                 , (1, [(0, ClientInit 0 [2, 40])])
+                 ]
+    protlets   = [ (0, [compute sum])]
+
+addClient :: (MessagePassing m) => Label -> NodeID -> Int -> Int -> m [Int]
+addClient label server a b = do
+  send server label "compute__Request" [a, b]
+  mmsg <- receive [(label, "compute__Response")]
+  case mmsg of
+    Nothing -> undefined
+    Just msg -> return $ _msgBody msg
+
+addClient :: (MessagePassing m) => Label -> NodeID -> Int -> Int -> m [Int]
+addClient label server a b = 
+  rpcCall label "compute" [a, b] server
+
+addServer :: (MessagePassing m) => Label -> m a
+addServer label = do
+  Message client _ args _ _ <- spinReceive [(label, "compute__Request")]
+  send client label "compute__Response" [sum args]
+  addServer label
+
+
+addConf :: (ProtletAnnotations S m, MessagePassing m) => ImplNetwork m [Int]
+addConf = initializeImplNetwork [
+            (1, addClient 0 0 2 40)
+          , (0, addServer 0) 
+          ]
+
+import NetSim.Interpretations.Pure
+import Test.QuickCheck 
+
+prop_simpleAddNetwork :: Int -> Int -> Bool
+prop_simpleAddNetwork x y = 
+  let trace = take 100 $ roundRobinTrace (addConf x y) in
+    checkTrace (addNetwork x y) trace == Right ()
