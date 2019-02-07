@@ -97,5 +97,5 @@ We have:
 - _X: Implemented_
 - _M: Implementation makes use of message passing_
 - _S: Implementation makes use of shared memory concurrency_
-- _P: Implementation makes use of arallel Execution_
+- _P: Implementation makes use of parallel execution_
 - _(P): Parallel version implemented in addition to sequential_
