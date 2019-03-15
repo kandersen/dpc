@@ -45,10 +45,10 @@ perform :: Alternative f => Protlet f S
 perform = ARPC "perform" clientStep serverRec serverSend
   where
     clientStep s = case s of
-      Client server n -> Just ([n], server, const ClientDone)
+      Client server n -> Just (server, [n], const ClientDone)
       _ -> Nothing
     
-    serverRec msg s = case s of
+    serverRec msg s = undefined
       
 
     serverSend = undefined

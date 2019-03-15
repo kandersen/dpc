@@ -14,9 +14,8 @@ dependencies:
   - socket
   - bytestring
   - cereal
-  - stm
   - random
-  - mmorph
+  - stm
   - QuickCheck
 
 library:

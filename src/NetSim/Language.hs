@@ -43,7 +43,7 @@ class Monad m => SharedMemory m where
 isReceivable :: Message -> [(Label, String)] -> Bool
 isReceivable Message{..} = isJust . find (\(lbl,t) -> _msgLabel == lbl && _msgTag == t)
 
--- Instances
+-- Instances -- Potentially speculative instances for "the classics"
 instance MessagePassing m => MessagePassing (StateT s m) where
   send n l t m = lift $ send n l t m
   receive = lift . receive

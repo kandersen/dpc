@@ -14,7 +14,6 @@ import           NetSim.Util
 
 import           Control.Monad   (forM_)
 import           Control.Monad.State
-import           Control.Monad.Morph
 import           Data.Maybe      (fromMaybe)
 import           Data.Ratio
 import           Control.Monad.Trans
@@ -176,6 +175,7 @@ acceptor' :: (MessagePassing m, ProtletAnnotations PState m) =>
    Label -> m a
 acceptor' label = evalStateT loop Nothing
   where
+    --- MessagePassing m => StateT S m 
     loop :: (MessagePassing m, ProtletAnnotations PState m, MonadState (Maybe (Either Int (Int, Int))) m) =>  m a
     loop = do
       enactingServer (OneOf [prepare label undefined, commit]) $ do
