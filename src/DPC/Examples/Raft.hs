@@ -1,8 +1,8 @@
 {-# LANGUAGE GADTs #-}
-module NetSim.Examples.Raft where
+module DPC.Examples.Raft where
 
-import NetSim.Types
-import NetSim.Specifications
+import DPC.Types
+import DPC.Specifications
 
 data S = Actor {
   -- Persistent State

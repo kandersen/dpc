@@ -1,9 +1,9 @@
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module NetSim.Examples.DistributedLocking where
+module DPC.Examples.DistributedLocking where
 
-import NetSim.Types
-import           NetSim.Specifications
+import DPC.Types
+import DPC.Specifications
 
 data State = ClientInit NodeID NodeID Int
            | ClientAcquired NodeID NodeID Int Int

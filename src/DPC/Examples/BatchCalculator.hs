@@ -1,10 +1,10 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleContexts #-}
-module NetSim.Examples.BatchCalculator where
+module DPC.Examples.BatchCalculator where
 
-import NetSim.Types
-import NetSim.Specifications
-import NetSim.Language
+import DPC.Types
+import DPC.Specifications
+import DPC.Language
 
 data PState = ClientInit NodeID NodeID Int Int
             | ClientDone Int

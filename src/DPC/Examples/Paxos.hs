@@ -5,12 +5,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module NetSim.Examples.Paxos where
+module DPC.Examples.Paxos where
 
-import           NetSim.Types
-import           NetSim.Specifications
-import           NetSim.Language
-import           NetSim.Util
+import           DPC.Types
+import           DPC.Specifications
+import           DPC.Language
+import           DPC.Util
 
 import           Control.Monad   (forM_)
 import           Control.Monad.State

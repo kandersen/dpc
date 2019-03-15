@@ -3,11 +3,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
-module NetSim.Examples.Calculator.Calculator where
+module DPC.Examples.Calculator.Calculator where
 
-import NetSim.Types
-import           NetSim.Specifications
-import           NetSim.Language
+import DPC.Types
+import DPC.Specifications
+import DPC.Language
 
 import qualified Data.Map        as Map
 import Data.Map (Map)

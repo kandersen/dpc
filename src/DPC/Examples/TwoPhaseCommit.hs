@@ -2,7 +2,7 @@
 {-# LANGUAGE RankNTypes       #-}
 {-# LANGUAGE RecordWildCards  #-}
 {-# LANGUAGE FlexibleContexts #-}
-module NetSim.Examples.TwoPhaseCommit(
+module DPC.Examples.TwoPhaseCommit(
     initNetwork
   , initNetworkMetadata
   , tpcClient
@@ -10,10 +10,10 @@ module NetSim.Examples.TwoPhaseCommit(
   , tpcInvariant
   ) where
 
-import           NetSim.Types
-import           NetSim.Specifications
-import           NetSim.Invariant
-import           NetSim.Language
+import           DPC.Types
+import           DPC.Specifications
+import           DPC.Invariant
+import           DPC.Language
 
 import           Control.Monad    (forM)
 

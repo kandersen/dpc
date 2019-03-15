@@ -4,15 +4,15 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
-module NetSim.Interpretations.SharedMemory where
+module DPC.Interpretations.SharedMemory where
 
 import           Control.Concurrent
 import           Control.Monad.Reader
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
 
-import           NetSim.Types
-import           NetSim.Language
+import           DPC.Types
+import           DPC.Language
 --
 -- IO Implementation with real threads!
 --

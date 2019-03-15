@@ -5,7 +5,7 @@
 {-# LANGUAGE FlexibleInstances         #-}
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
-module NetSim.Interpretations.Pure where
+module DPC.Interpretations.Pure where
 import           Data.List        (sortBy, find)
 import qualified Data.Map         as Map
 import Data.Map (Map)
@@ -19,10 +19,10 @@ import Lens.Micro hiding (to)
 import Lens.Micro.Mtl
 import Lens.Micro.GHC()
 
-import           NetSim.Types
-import           NetSim.Specifications
-import           NetSim.Language
-import           NetSim.Util
+import           DPC.Types
+import           DPC.Specifications
+import           DPC.Language
+import           DPC.Util
 
 
 -- Pure implementation.

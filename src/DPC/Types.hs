@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveGeneric    #-}
 {-# LANGUAGE DeriveAnyClass   #-}
-module NetSim.Types where
+module DPC.Types where
 
 import           Data.Serialize      (Serialize)
 import           GHC.Generics        (Generic)

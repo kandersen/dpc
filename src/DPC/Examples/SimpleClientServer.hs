@@ -1,7 +1,7 @@
-module NetSim.Examples.SimpleClientServer where
+module DPC.Examples.SimpleClientServer where
 
-import NetSim.Types
-import           NetSim.Specifications
+import DPC.Types
+import DPC.Specifications
 
 data State = ClientInit NodeID
            | ClientDone Int

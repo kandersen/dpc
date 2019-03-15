@@ -3,15 +3,15 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FlexibleInstances #-}
-module NetSim.Language where
+module DPC.Language where
 
 import           Data.Foldable
 import           Data.Maybe    (isJust)
 import           Data.Map as Map
 import           Control.Monad.State
 
-import NetSim.Types
-import NetSim.Specifications
+import DPC.Types
+import DPC.Specifications
 
 --
 -- Language primitives

@@ -1,4 +1,4 @@
-module NetSim.Util(
+module DPC.Util(
   oneOfP,
   oneOf,
   snoc,

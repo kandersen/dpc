@@ -1,4 +1,4 @@
-name: netsim
+name: dpc
 version: 0.0.0.0
 ghc-options: -Wall -fwarn-tabs -fwarn-incomplete-record-updates -fwarn-monomorphism-restriction -fwarn-unused-do-bind
 dependencies:
@@ -20,26 +20,26 @@ dependencies:
 
 library:
   exposed-modules: 
-    - NetSim.Types
-    - NetSim.Specifications
-    - NetSim.Language
-    - NetSim.Examples.Calculator.Calculator
-    - NetSim.Interpretations.WebSockets
+    - DPC.Types
+    - DPC.Specifications
+    - DPC.Language
+    - DPC.Examples.Calculator.Calculator
+    - DPC.Interpretations.WebSockets
   source-dirs: src
 
 executables:
   poly-server: 
     dependencies:
-      - netsim
+      - dpc
     ghc-options:
       - -main-is 
-      - NetSim.Examples.Calculator.Server
-    main: src/NetSim/Examples/Calculator/Server.hs
+      - DPC.Examples.Calculator.Server
+    main: src/DPC/Examples/Calculator/Server.hs
   poly-client: 
     dependencies:
-      - netsim
+      - dpc
     ghc-options:
       - -main-is 
-      - NetSim.Examples.Calculator.Client
-    main: src/NetSim/Examples/Calculator/Client.hs
+      - DPC.Examples.Calculator.Client
+    main: src/DPC/Examples/Calculator/Client.hs
 

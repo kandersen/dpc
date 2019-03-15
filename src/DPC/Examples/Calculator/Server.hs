@@ -1,9 +1,8 @@
+module DPC.Examples.Calculator.Server where
 
-module NetSim.Examples.Calculator.Server where
-
-import           NetSim.Types
-import           NetSim.Examples.Calculator.Calculator
-import           NetSim.Interpretations.WebSockets
+import           DPC.Types
+import           DPC.Examples.Calculator.Calculator
+import           DPC.Interpretations.WebSockets
 
 import           System.Environment                    (getArgs)
 import Control.Monad (void)

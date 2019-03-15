@@ -1,11 +1,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
-module NetSim.Examples.Counter.Counter where
+module DPC.Examples.Counter.Counter where
 
-import NetSim.Types
-import NetSim.Specifications
-import NetSim.Language
+import DPC.Types
+import DPC.Specifications
+import DPC.Language
 
 data S = Server Int
        | Client NodeID

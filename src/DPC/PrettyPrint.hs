@@ -1,10 +1,10 @@
 {-# LANGUAGE RecordWildCards #-}
-module NetSim.PrettyPrint where
+module DPC.PrettyPrint where
 
-import NetSim.Types
-import NetSim.Specifications
+import DPC.Types
+import DPC.Specifications
 import Data.List
-import NetSim.Interpretations.Pure
+import DPC.Interpretations.Pure
 
 ppMessage :: Message -> String
 ppMessage Message{..} = concat [

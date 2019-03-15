@@ -4,7 +4,7 @@
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE FlexibleInstances          #-}
-module NetSim.Interpretations.WebSockets where
+module DPC.Interpretations.WebSockets where
 
 import           Data.Foldable
 import           Data.List                  (delete)
@@ -24,8 +24,8 @@ import           System.Socket.Type.Stream
 import           Control.Concurrent
 import           Control.Concurrent.STM
 
-import           NetSim.Types
-import           NetSim.Language
+import           DPC.Types
+import           DPC.Language
 
 import           Lens.Micro.Mtl
 import           Lens.Micro.TH
@@ -117,7 +117,7 @@ instance ProtletAnnotations s (SocketRunnerT m) where
 
 instance (MonadIO m) => MessagePassing (SocketRunnerT m) where
   send to lbl tag body = do
-    thisID <- NetSim.Language.this
+    thisID <- DPC.Language.this
     let p = encode $ Message thisID tag body to lbl
     peerSocket <- (!to) <$> view addressBook
     void . liftIO $ Socket.send peerSocket p mempty

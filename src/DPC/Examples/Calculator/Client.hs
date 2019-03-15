@@ -1,16 +1,15 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-module NetSim.Examples.Calculator.Client where
+module DPC.Examples.Calculator.Client where
 
-import NetSim.Types
-import           NetSim.Examples.Calculator.Calculator
-import           NetSim.Interpretations.WebSockets
+import DPC.Types
+import DPC.Examples.Calculator.Calculator
+import DPC.Interpretations.WebSockets
 
-import           System.Environment                    (getArgs)
+import System.Environment                    (getArgs)
+import System.IO
 
-import           Control.Monad
-import           Control.Monad.IO.Class
-
-import           System.IO
+import Control.Monad
+import Control.Monad.IO.Class
 
 clientWrapper :: SocketRunner ()
 clientWrapper = do

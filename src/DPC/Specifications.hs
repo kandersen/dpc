@@ -1,8 +1,8 @@
 {-# LANGUAGE ApplicativeDo    #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards  #-}
-module NetSim.Specifications (
-  module NetSim.Specifications,
+module DPC.Specifications (
+  module DPC.Specifications,
   module Control.Applicative
   ) where
 
@@ -12,11 +12,11 @@ import           Data.Map            (Map)
 import qualified Data.Map            as Map
 import           Data.Foldable
 import           Lens.Micro
-import           NetSim.Util
+import           DPC.Util
 
 import           Text.Show.Functions ()
 
-import NetSim.Types
+import DPC.Types
 
 data NodeState s = Running s
                  | BlockingOn s String Rational [NodeID] ([(NodeID, [Int])] -> s)

@@ -1,10 +1,10 @@
 {-# LANGUAGE FlexibleContexts    #-}
-module NetSim.Examples.PADL where
+module DPC.Examples.PADL where
 
-import NetSim.Types
-import NetSim.Specifications
-import NetSim.Language
-import NetSim.Interpretations.Pure
+import DPC.Types
+import DPC.Specifications
+import DPC.Language
+import DPC.Interpretations.Pure
 import Test.QuickCheck 
 
 data S = ClientInit NodeID [Int]

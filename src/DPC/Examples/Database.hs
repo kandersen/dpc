@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts    #-}
-module NetSim.Examples.Database where
+module DPC.Examples.Database where
 
 import           Control.Concurrent
 import           Control.Monad
@@ -10,10 +10,10 @@ import           Control.Monad.IO.Class
 import           Data.Map                            (Map, fromList)
 import qualified Data.Map                            as Map
 
-import NetSim.Types
-import           NetSim.Specifications
-import           NetSim.Interpretations.SharedMemory
-import           NetSim.Language
+import DPC.Types
+import DPC.Specifications
+import DPC.Interpretations.SharedMemory
+import DPC.Language
 
 -- | Specification
 

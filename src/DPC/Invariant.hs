@@ -1,9 +1,9 @@
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE RecordWildCards #-}
-module NetSim.Invariant where
+module DPC.Invariant where
 
-import NetSim.Specifications
-import NetSim.Types
+import DPC.Specifications
+import DPC.Types
 
 import qualified Data.Map as Map
 import Data.List (find)

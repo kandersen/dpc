@@ -1,16 +1,16 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE Rank2Types #-}
 
-module NetSim.GUI (
+module DPC.GUI (
   runGUI,
   runGUIWithInvariant
   ) where
 
-import NetSim.Types
-import NetSim.Specifications
-import NetSim.Invariant
-import NetSim.PrettyPrint
-import NetSim.Util
+import DPC.Types
+import DPC.Specifications
+import DPC.Invariant
+import DPC.PrettyPrint
+import DPC.Util
 
 import Brick
 import Brick.Forms
