@@ -150,7 +150,7 @@ polynomialClient addLabel mulLabel server = go
 
 addClient :: (ProtletAnnotations S m, MessagePassing m) => Label -> Int -> Int -> NodeID -> m Int
 addClient label a b server = do
-  [ans] <- enactingClient (compute sum) $ do
+  [ans] <- enactingClient (compute sum) $
     rpcCall label "compute" [a, b] server
   return ans
 

@@ -4,19 +4,24 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 module DPC.Interpretations.SharedMemory where
 
-import           Control.Concurrent
+import           UnliftIO
+import           UnliftIO.Concurrent
 import           Control.Monad.Reader
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
+
 
 import           DPC.Types
 import           DPC.Language
 --
 -- IO Implementation with real threads!
 --
-newtype RunnerT m a = RunnerT { runRunnerT :: ReaderT (NodeID, Chan Message, Map NodeID (Chan Message)) m a }
+type SharedMemoryContext = (NodeID, Chan Message, Map NodeID (Chan Message))
+
+newtype RunnerT m a = RunnerT { runRunnerT :: ReaderT SharedMemoryContext m a }
   deriving (Functor,
             Applicative,
             Monad,
@@ -27,48 +32,50 @@ newtype RunnerT m a = RunnerT { runRunnerT :: ReaderT (NodeID, Chan Message, Map
 
 type Runner = RunnerT IO
 
-instance NetworkNode Runner where
+instance Monad m => NetworkNode (RunnerT m) where
   this = (\(nodeID, _, _) -> nodeID) <$> ask
 
-instance MessagePassing Runner where
+instance MonadIO m => MessagePassing (RunnerT m) where
   send to label tag body = do
     (nodeID, _, channels) <- ask
-    lift $ writeChan (channels Map.! to) (Message nodeID tag body to label)
+    liftIO $ writeChan (channels Map.! to) (Message nodeID tag body to label)
   receive candidates = do
     (_, inbox, _) <- ask
-    msg <- lift $ readChan inbox
+    msg <- liftIO $ readChan inbox
     if isReceivable msg candidates      
       then return $ Just msg
       else do
-        lift $ writeChan inbox msg
-        return Nothing
+        liftIO $ writeChan inbox msg
+        return Nothing  
 
-instance SharedMemory Runner where
-  type Ref Runner = MVar
+instance MonadIO m => SharedMemory (RunnerT m) where
+  type Ref (RunnerT m) = MVar
   allocRef a = liftIO $ newMVar a
   readRef v = liftIO $ takeMVar v
   writeRef v a = liftIO $ putMVar v a
   casRef v a' b = liftIO $ modifyMVar v (\a -> return (if a == a' then b else a, a == a'))
 
-instance Par Runner where
+instance MonadUnliftIO m => Par (RunnerT m) where
   par mas k = do
     env <- ask
     vars <- forkThreads env mas
     as <-  awaitThreads vars
     k as
     where
+      forkThreads :: SharedMemoryContext -> [RunnerT m a] -> RunnerT m [MVar a]
       forkThreads _ [] = return []
       forkThreads env (ma:mas') = do
         var <- liftIO newEmptyMVar
-        liftIO . void . forkIO $ (runReaderT (runRunnerT ma) env >>= putMVar var)
+        lift $ withRunInIO $ \runInner -> 
+          void . liftIO . forkIO $ runInner (runReaderT (runRunnerT ma) env) >>= liftIO . putMVar var
         (var:) <$> forkThreads env mas'
       awaitThreads [] = return []
       awaitThreads (v:vs) = do
         a <- liftIO $ takeMVar v
         (a:) <$> awaitThreads vs
 
-runNetworkIO :: ImplNetwork Runner a -> IO [(NodeID, a)]
-runNetworkIO conf = do
+runNetwork :: MonadUnliftIO m => ImplNetwork (RunnerT m) a -> m [(NodeID, a)]
+runNetwork conf = do
   let network = Map.toList $ _localStates conf
   envs <- sequence $ do
     (nodeID, code) <- network
@@ -80,7 +87,6 @@ runNetworkIO conf = do
   sequence_ . flip fmap network  $ \(nodeID, code) ->
     forkIO . void $ runReaderT (runRunnerT (code >>= epilogue output . (nodeID,))) (nodeID, mapping Map.! nodeID, mapping)
   getChanContents output
-
+  
   where
-    epilogue :: Chan a -> a -> Runner ()
     epilogue output a = RunnerT $ liftIO $ writeChan output a

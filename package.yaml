@@ -16,6 +16,7 @@ dependencies:
   - cereal
   - random
   - stm
+  - unliftio
   - QuickCheck
 
 library:

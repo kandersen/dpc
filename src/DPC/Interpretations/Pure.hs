@@ -6,10 +6,10 @@
 {-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
 module DPC.Interpretations.Pure where
-import           Data.List        (sortBy, find)
+import Data.List        (sortBy, find)
 import qualified Data.Map         as Map
 import Data.Map (Map)
-import           Data.Ord         (comparing)
+import Data.Ord         (comparing)
 import Data.Maybe (fromJust)
 
 import Control.Arrow
@@ -19,10 +19,10 @@ import Lens.Micro hiding (to)
 import Lens.Micro.Mtl
 import Lens.Micro.GHC()
 
-import           DPC.Types
-import           DPC.Specifications
-import           DPC.Language
-import           DPC.Util
+import DPC.Types
+import DPC.Specifications
+import DPC.Language
+import DPC.Util
 
 
 -- Pure implementation.
