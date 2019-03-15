@@ -136,6 +136,8 @@ dbServer db = par (oneCell <$> (Map.keys . _cells) db ) undefined
 seconds :: Int -> Int
 seconds = (* 1000000)
 
+type Runner = RunnerT IO
+
 snapshotter :: DBState Runner -> Runner a
 snapshotter db = do
     liftIO $ threadDelay (seconds 8)

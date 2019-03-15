@@ -30,8 +30,6 @@ newtype RunnerT m a = RunnerT { runRunnerT :: ReaderT SharedMemoryContext m a }
             MonadReader (NodeID, Chan Message, Map NodeID (Chan Message))
            )
 
-type Runner = RunnerT IO
-
 instance Monad m => NetworkNode (RunnerT m) where
   this = (\(nodeID, _, _) -> nodeID) <$> ask
 
