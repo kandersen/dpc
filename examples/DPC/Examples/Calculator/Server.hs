@@ -1,10 +1,10 @@
 module DPC.Examples.Calculator.Server where
 
-import           DPC.Types
-import           DPC.Examples.Calculator.Calculator
-import           DPC.Interpretations.WebSockets
+import DPC.Types
+import DPC.Examples.Calculator.Calculator
+import DPC.Interpretations.WebSockets
 
-import           System.Environment                    (getArgs)
+import System.Environment (getArgs)
 import Control.Monad (void)
 
 main :: IO ()

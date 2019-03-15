@@ -23,8 +23,13 @@ library:
     - DPC.Types
     - DPC.Specifications
     - DPC.Language
-    - DPC.Examples.Calculator.Calculator
     - DPC.Interpretations.WebSockets
+    - DPC.Interpretations.Pure
+    - DPC.Interpretations.SharedMemory
+    - DPC.Util
+    - DPC.Invariant
+    - DPC.GUI
+    - DPC.PrettyPrint
   source-dirs: src
 
 executables:
@@ -34,12 +39,14 @@ executables:
     ghc-options:
       - -main-is 
       - DPC.Examples.Calculator.Server
-    main: src/DPC/Examples/Calculator/Server.hs
+    main: DPC/Examples/Calculator/Server.hs
+    source-dirs: examples
   poly-client: 
     dependencies:
       - dpc
     ghc-options:
       - -main-is 
       - DPC.Examples.Calculator.Client
-    main: src/DPC/Examples/Calculator/Client.hs
+    main: DPC/Examples/Calculator/Client.hs
+    source-dirs: examples
 
