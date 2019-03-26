@@ -16,7 +16,7 @@ Case studies have inspired other combinators like broadcast polling.
 
 There are two implementation of the language, one into an AST capturing the basic monadic fragment + the distributed language, embedding Haskell's pure computations. Alternatively, the language can be interpreted as proper Haskell threads communicating via message passing. The implementation is decentralized, without a central message passing authority, all communication via channels, leaving execution order to the Haskell runtime.
 
-### NetSim.Core (Name Subject to change!)
+### NetSim.Specifications
 
 This module contains a specification language for distributed programming languages. It tries to be very fine-grained and modular. The notion of composition and interaction is still unclear, but here follows first a sketch of the blocks included, then a brief consideration of what composition and interaction might mean/model in this system.
 
@@ -36,7 +36,7 @@ There's a `try` function for each component of protlets, returning an `f` full o
 
 ### NetSim.Invariant
 
-This module describes a language for writing inductive invariants for state machines expressed using the NetSim.Core module, the idea being that the protocol can be checked against the invariant.
+This module describes a language for writing inductive invariants for state machines expressed using the NetSim.Specifications module, the idea being that the protocol can be checked against the invariant.
 
 An invariant is simply a boolean predicate on a network, parameterised by a protlet instance label and some protocol specific `metadata`, i.e. to capture 'roles' or other protocol specific properties.
 
@@ -75,7 +75,7 @@ See `INSTRUCTIONS.md`.
 
 We have:
 
-* A *specification language* of RPCs. It is implemented in `Core.hs`. This is the language currently described in the "Overview" section of the paper. It has 'combinators' for RPCs and Broadcast messages, and is at the moment "interactively executable" i.e. simulations can be explored using the GUI. Technically, it is executable in any monad providing a non-deterministic binary choice operator, used to model the interleaving of nodes and to non-deterministic choice in the specification.
+* A *specification language* of RPCs. It is implemented in `Specifications.hs`. This is the language currently described in the "Overview" section of the paper. It has 'combinators' for RPCs and Broadcast messages, and is at the moment "interactively executable" i.e. simulations can be explored using the GUI. Technically, it is executable in any monad providing a non-deterministic binary choice operator, used to model the interleaving of nodes and to non-deterministic choice in the specification.
 * A small library for describing predicates of the states in the aforementioned specification language. It is implemented in `Invariant.hs`. Provided an invariant, the GUI checks the validity of this invariant at every step of the exploration. This is so far not described in the paper, though I have tried outlining where it might fit in the second-to-last paragraph in the "Overview" section.
 * A simple monadic *programming language*, a DSL for Message passing, parallel execution and shared memory, and compound operations built from these primitives is found in `Language.hs`. In the paper, it is described in Section 3, "A DiSeL Monad".
 * The aforementioned language is given 3 notions of execution. They are in turn described in Section 3 of the paper.
@@ -97,5 +97,5 @@ We have:
 - _X: Implemented_
 - _M: Implementation makes use of message passing_
 - _S: Implementation makes use of shared memory concurrency_
-- _P: Implementation makes use of arallel Execution_
+- _P: Implementation makes use of parallel execution_
 - _(P): Parallel version implemented in addition to sequential_
