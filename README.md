@@ -1,5 +1,7 @@
 # Distributed Protocol Combinators
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.3902686.svg)](https://doi.org/10.5281/zenodo.3902686)
+
 ## Overview
 
 This repository contains a (work-in-progress) development of a framework for experimenting with fine-grained concurrent, distributed programming languages and mechanisms for specifying programs. 
