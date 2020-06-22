@@ -1,5 +1,6 @@
 # Distributed Protocol Combinators
 
+[![License](https://img.shields.io/badge/License-BSD%202--Clause-orange.svg)](https://raw.githubusercontent.com/kandersen/dpc/master/LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.3902686.svg)](https://doi.org/10.5281/zenodo.3902686)
 
 ## Overview
