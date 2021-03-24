@@ -9,17 +9,17 @@ This repository contains a (work-in-progress) development of a framework for exp
 
 The core modules are outlined below:
 
-### NetSim.Language
+### DPC.Language
 
 The `MonadDiSeL` typeclass extends a monadic language with `send` and `receive` primitives for message passing; a `par` combinator for running sub-computations in parallel; and a `this` operation for querying the identity of the thread/node/unit of concurrency that the computation is running on. 
 
-With these primitives we can build higher-level operations, such as a blocking receive (allowing for the primitive `receive`  to be non-blocking), and more intricate message passing patterns such as a "synchronous RPC" (our term) where a client essentially invokes a computation on a remote server and waits for the result. See `rpcCall` in `src/NetSim/Language.hs`.
+With these primitives we can build higher-level operations, such as a blocking receive (allowing for the primitive `receive`  to be non-blocking), and more intricate message passing patterns such as a "synchronous RPC" (our term) where a client essentially invokes a computation on a remote server and waits for the result. See `rpcCall` in `src/DPC/Language.hs`.
 
 Case studies have inspired other combinators like broadcast polling. 
 
 There are two implementation of the language, one into an AST capturing the basic monadic fragment + the distributed language, embedding Haskell's pure computations. Alternatively, the language can be interpreted as proper Haskell threads communicating via message passing. The implementation is decentralized, without a central message passing authority, all communication via channels, leaving execution order to the Haskell runtime.
 
-### NetSim.Specifications
+### DPC.Specifications
 
 This module contains a specification language for distributed programming languages. It tries to be very fine-grained and modular. The notion of composition and interaction is still unclear, but here follows first a sketch of the blocks included, then a brief consideration of what composition and interaction might mean/model in this system.
 
@@ -37,15 +37,15 @@ The rest of the module includes code for 'executing' or simulating the protocols
 
 There's a `try` function for each component of protlets, returning an `f` full of all the ways these transitions are possible.
 
-### NetSim.Invariant
+### DPC.Invariant
 
-This module describes a language for writing inductive invariants for state machines expressed using the NetSim.Specifications module, the idea being that the protocol can be checked against the invariant.
+This module describes a language for writing inductive invariants for state machines expressed using the DPC.Specifications module, the idea being that the protocol can be checked against the invariant.
 
 An invariant is simply a boolean predicate on a network, parameterised by a protlet instance label and some protocol specific `metadata`, i.e. to capture 'roles' or other protocol specific properties.
 
 The module then supplies simple combinators for expressing a property on nodes, messages in the soup etc.
 
-### NetSim.GUI
+### DPC.GUI
 
 This module contains functionality for stepping a network consisting of a set of nodes and a collection of protlets. The user is presented with a list of all possible transitions, and the network is advanced according to that transition. (The notion of non-determininsm used is that of lists -- i.e. all possible transitions are presented at every step).
 
@@ -57,7 +57,7 @@ See the TODO file.
 
 ## Case Studies
 
-Found in the `NetSim.Examples` module, 
+Found in the `DPC.Examples` module, 
 
 * `BatchCalculator`, from the DiSeL paper
 * `Calculator`, a concurrent polynomial calculator server
