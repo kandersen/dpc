@@ -33,20 +33,20 @@ Here we will quickly look at a simple instance of the calculator example: 1 serv
 
 Run e.g. 
 ```
-> take 10 $ runPure (DPC.Examples.Calculator.Calculator.simpleConf :: Configuration (DiSeL DPC.Examples.Calculator.Calculator.S) Int)
+> take 10 $ runPure (DPC.Examples.Calculator.Calculator.simpleConf :: ImplNetwork (DiSeL DPC.Examples.Calculator.Calculator.S) Int)
 ```
 to get the 10 first steps of the fair execution of the initial configuration initConf.
 
 We can "pretty print" the trace with the following:
 
 ```
-> mapM_ (putStrLn . show . fst) $ take 55 $ runPure (DPC.Examples.Calculator.Calculator.simpleConf :: Configuration (DiSeL DPC.Examples.Calculator.Calculator.S) Int)
+> mapM_ (putStrLn . show . fst) $ take 55 $ runPure (DPC.Examples.Calculator.Calculator.simpleConf :: ImplNetwork (DiSeL DPC.Examples.Calculator.Calculator.S) Int)
 ```
 we know it's finished as we can see the repeated `ServerAction[RPC "compute" <function> <function>]:InternalAction[0]` of the spinning receive loop on the server (node 0)..
 
 To check the safety of the trace, run `checkTrace` on the actions in the trace, supplying an initial spec configuration of _protocol states_ for each node:
 ```
-> DPC.Interpretations.Pure.checkTrace initStates . fmap fst $ take 60 $ runPure (DPC.Examples.Calculator.Calculator.simpleConf :: Configuration (DiSeL DPC.Examples.Calculator.Calculator.S) Int)
+> DPC.Interpretations.Pure.checkTrace initStates . fmap fst $ take 60 $ runPure (DPC.Examples.Calculator.Calculator.simpleConf :: ImplNetwork (DiSeL DPC.Examples.Calculator.Calculator.S) Int)
 ```
 
 A return of `Right ()` indicates success.
@@ -55,7 +55,7 @@ Now, try and change the `sum` in line 72 of Calculator.hs to `product`, or some 
 
 ```
 > :r
-> DPC.Interpretations.Pure.checkTrace initStates . fmap fst $ take 60 $ runPure (DPC.Examples.Calculator.Calculator.simpleConf :: Configuration (DiSeL DPC.Examples.Calculator.Calculator.S) Int)
+> DPC.Interpretations.Pure.checkTrace initStates . fmap fst $ take 60 $ runPure (DPC.Examples.Calculator.Calculator.simpleConf :: ImplNetwork (DiSeL DPC.Examples.Calculator.Calculator.S) Int)
 ```
 
 An exception is thrown as the server did not follow the protocol as specified.
