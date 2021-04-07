@@ -44,6 +44,7 @@ data RaftState = Leader [OtherNode] ActorState
   | Follower LeaderNode [OtherNode] ActorState
   | FollowerVote LeaderNode [OtherNode] ActorState
   | FollowerCommit LeaderNode [OtherNode] ActorState Log
+  | Candidate [OtherNode] ActorState
   deriving Show
 
 -- Term and Int (0 for false, 1 for true) are added
@@ -153,25 +154,29 @@ commit label = Broadcast "commit" sendCommit receiveCommit replyToCommit
         <|> pure (respond label self (Vote leader currentTerm 0), Follower leader others state ) -- reject commited values
       _ -> empty
 
+-- Candidate starts reelection by sending out new term
+-- value to all other nodes. It then receives votes from
+-- other nodes + 1 for it's own. If this is greater than majority
+-- then it becomes leader else it stays a candidate
 reElection :: Alternative f => Label -> Int -> Protlet f RaftState
 reElection label n = Quorum "reElection" (quorumSize n) startElection receiveElectionRequest sendElectionVote 
   where
-
     startElection :: Broadcast RaftState
     startElection = \case
-      Follower leader others state@ActorState{ _currentTerm = currentTerm } ->
-        Just (zip others (repeat [currentTerm + 1]), receiveVote leader others state (currentTerm + 1))
+      Candidate others state@ActorState{ _currentTerm = newTerm } ->
+        Just (zip others (repeat [newTerm]), receiveVote others state)
       _ -> empty
 
     -- decide next state based on the number of votes received
     -- in reponse body integer 1 indicates accepted vote
     -- if gets majority vote becomes leader
     -- else stays follower
-    receiveVote :: NodeID -> [OtherNode] -> ActorState -> Term -> [(NodeID, [Int])] -> RaftState
-    receiveVote currentLeader followers state newTerm responses =
-      if (fromIntegral . length . filter (\(nodeid, (term:value:values)) -> value == 1) $ responses) >= (quorumSize n)
-      then Leader followers state {_currentTerm = newTerm}
-      else Follower currentLeader followers state
+    receiveVote :: [OtherNode] -> ActorState -> [(NodeID, [Int])] -> RaftState
+    receiveVote followers state responses =
+      -- count votes and self vote
+      if 1 + (fromIntegral . length . filter (\(nodeid, [term,value]) -> value == 1) $ responses) >= (quorumSize n)
+      then Leader followers state
+      else Candidate followers state
 
     quorumSize :: Int -> Rational
     quorumSize n = ((fromIntegral n % 2) + 1)
@@ -179,17 +184,37 @@ reElection label n = Quorum "reElection" (quorumSize n) startElection receiveEle
     -- POSSIBLE IMPROVEMENT add checks to only make transition if election
     -- term is higher than current term in state
     receiveElectionRequest :: Receive RaftState
-    receiveElectionRequest msg = \case
-      Follower leader others state -> Just (FollowerVote leader others state)
-      Leader others state -> Just (FollowerVote (_msgFrom msg) others state)  -- current leader becomes follower
+    receiveElectionRequest msg@Message { _msgFrom = candidateID, _msgBody = [newTerm] } = \case
+      Follower leader others state -> Just (FollowerVote leader others state { _currentTerm = newTerm })
+      Leader others state -> Just (FollowerVote candidateID others state { _currentTerm = newTerm })  -- current leader becomes follower
       _ -> empty
 
     sendElectionVote :: Alternative f => Send f RaftState
     sendElectionVote self = \case
-      FollowerVote leader others state@ActorState { _currentTerm = currentTerm } -> 
-        pure (respond label self (Vote leader (currentTerm + 1) 1), Follower leader others state {_currentTerm = currentTerm + 1}) -- accept candidate
-        <|> pure (respond label self (Vote leader currentTerm 0), Follower leader others state ) -- reject candidate
+      FollowerVote leader others state@ActorState { _currentTerm = newTerm } -> 
+        pure (respond label self (Vote leader newTerm 1), Follower leader others state ) -- accept candidate
+        <|> pure (respond label self (Vote leader newTerm 0), Follower leader others state ) -- reject candidate
       _ -> empty
+
+-- follower times out and becomes candidate
+-- this is implemented as a message to self
+-- becomes candidate and increments term value
+followerTimeout :: Alternative f => Label -> Protlet f RaftState
+followerTimeout label = RPC "followerTimeout" sendSelfMessage receiveSelfMessage
+  where
+    sendSelfMessage :: ClientStep RaftState
+    sendSelfMessage = \case
+      Follower leader others state@ActorState {_id = selfID, _currentTerm = currentTerm} ->
+        Just (_id state, [currentTerm], receiveSelfMessageResponse others state)
+      _ -> empty
+    
+    receiveSelfMessageResponse :: [OtherNode] -> ActorState -> [Int] -> RaftState
+    receiveSelfMessageResponse others state [prevTerm] = Candidate others state { _currentTerm = prevTerm + 1 }
+
+    -- this step does is inert
+    -- it does not change the state and sends back the message it received
+    receiveSelfMessage :: ServerStep RaftState
+    receiveSelfMessage messageBody currentState = Just (messageBody, currentState)
 
 initNetwork :: Alternative f => SpecNetwork f RaftState
 initNetwork = initializeNetwork nodeStates protlets
@@ -204,7 +229,7 @@ initNetwork = initializeNetwork nodeStates protlets
       ]
 
     protlets :: Alternative f => [(NodeID, [Protlet f RaftState])]
-    protlets = [(label, [OneOf [logReplicate logLabel 4, reElection electionLabel 4], commit label])]
+    protlets = [(label, [OneOf [logReplicate logLabel 4, followerTimeout label], reElection electionLabel 4, commit label])]
 
     label :: Label
     label = 0
