@@ -1,28 +1,133 @@
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RankNTypes       #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module DPC.Examples.Raft where
 
-import DPC.Types
-import DPC.Specifications
+import           DPC.Types
+import           DPC.Specifications
+import           DPC.Language
+import           DPC.Invariant
+import           DPC.Util
 
-data S = Actor {
-  -- Persistent State
-  _currentTerm :: Int,
+import           Control.Monad                  ( forM_ )
+import           Control.Monad.State
+import           Data.Maybe                     ( fromMaybe )
+import           Data.Ratio
+import           Data.Map                       ( toList )
+import           Control.Monad.Trans
+import           Data.Map                       ( Map )
+import qualified Data.Map                      as Map
+
+type LeaderNode = NodeID
+type OtherNode = NodeID
+type Log = [Int]
+type Timeout = Int
+type Term = Int
+type Value = Int
+
+data ActorState = ActorState {
+  -- perisistent state
+  _id :: NodeID,
+  _currentTerm :: Term,
   _votedFor :: Maybe NodeID,
   _log :: [Int],
-  -- Volatile State
-  _comittedIndex :: Int,
-  _lastApplied :: Int,
-  -- Volatile State on Leaders
-  _nextIndex :: [Int],
-  _matchIndex :: [Int]
+  -- volatile state
+  _lastReplicated :: Maybe Int,
+  -- volatile state on leaders
+  _toCommit :: [Int]
+} deriving Show
+
+data RaftState = Leader [OtherNode] ActorState
+  | LeaderReplicate [OtherNode] ActorState Value
+  | LeaderCommit [OtherNode] ActorState
+  | Follower LeaderNode [OtherNode] ActorState
+  | FollowerVote LeaderNode [OtherNode] ActorState
+  | FollowerCommit LeaderNode [OtherNode] ActorState Log
+  | Candidate [OtherNode] ActorState
+  deriving Show
+
+
+-- Invariants
+type MetaData = [NodeID]
+type RaftInvariant = Invariant MetaData RaftState Bool
+
+-- There can only be one (or 0) leaders for each term
+-- at any point of time
+oneLeaderPerTerm :: RaftInvariant
+oneLeaderPerTerm (_, _, NetworkState _ localStates) =
+  allDifferent
+    . (map mapLeadersStates)
+    . (filter checkLeaderStates)
+    . (concatMap localStatesToNodeStates)
+    . toList
+    $ localStates
+ where
+  allDifferent :: (Eq a) => [a] -> Bool
+  allDifferent []       = True
+  allDifferent (x : xs) = x `notElem` xs && allDifferent xs
+
+  localStatesToNodeStates
+    :: (NodeID, (Map Label (NodeState RaftState), [Message], Bool))
+    -> [(NodeID, (Label, RaftState))]
+  localStatesToNodeStates (nodeID, (localState, _, _)) =
+    zip (repeat nodeID) . map (nodeToRaftState) . toList $ localState
+
+  checkLeaderStates :: (NodeID, (Label, RaftState)) -> Bool
+  checkLeaderStates (_, (_, Leader _ _)           ) = True
+  checkLeaderStates (_, (_, LeaderCommit _ _)     ) = True
+  checkLeaderStates (_, (_, LeaderReplicate _ _ _)) = True
+  checkLeaderStates _                               = False
+
+  nodeToRaftState :: (Label, NodeState RaftState) -> (Label, RaftState)
+  nodeToRaftState (labelValue, Running s           ) = (labelValue, s)
+  nodeToRaftState (labelValue, BlockingOn s _ _ _ _) = (labelValue, s)
+
+  mapLeadersStates :: (NodeID, (Label, RaftState)) -> (NodeID, Label, Term)
+  mapLeadersStates (nodeID, (labelValue, Leader _ actorState)) =
+    (nodeID, labelValue, _currentTerm actorState)
+  mapLeadersStates (nodeID, (labelValue, LeaderCommit _ actorState)) =
+    (nodeID, labelValue, _currentTerm actorState)
+  mapLeadersStates (nodeID, (labelValue, LeaderReplicate _ actorState _)) =
+    (nodeID, labelValue, _currentTerm actorState)
+  -- non-leader states should not be called with this predicate
+  mapLeadersStates (nodeID, (labelValue, _)) = (nodeID, labelValue, -1)
+
+
+-- Term and Int (0 for false, 1 for true) are added
+-- to the same list in the message body since
+-- list is homogenous Bool cannot be used
+data Response = RequestVotes NodeID Term Int
+              | AppendEntries NodeID Term [Int]
+              | Vote NodeID Term Int
+
+respond :: Label -> NodeID -> Response -> Message
+respond label from (RequestVotes to term answer) = Message
+  { _msgTo    = to
+  , _msgBody  = [term, answer]
+  , _msgFrom  = from
+  , _msgLabel = label
+  , _msgTag   = "prepare__Response"
   }
-
-  | Client NodeID Int
-  | ClientDone
-
-data Mode = Follower
-          | Candidate
-          | Leader
+respond label from (AppendEntries to term values) = Message
+  { _msgTo    = to
+  , _msgBody  = term : values
+  , _msgFrom  = from
+  , _msgLabel = label
+  , _msgTag   = "prepare__Response"
+  }
+respond label from (Vote to term answer) = Message
+  { _msgTo    = to
+  , _msgBody  = [term, answer]
+  , _msgFrom  = from
+  , _msgLabel = label
+  , _msgTag   = "prepare__Response"
+  }
 
 {-
       [0]                     [1]                       [2]
@@ -41,14 +146,230 @@ data Mode = Follower
     - [4] Discovers server with higher term
 -}
 
-perform :: Alternative f => Protlet f S
-perform = ARPC "perform" clientStep serverRec serverSend
-  where
-    clientStep s = case s of
-      Client server n -> Just (server, [n], const ClientDone)
-      _ -> Nothing
-    
-    serverRec msg s = undefined
-      
+logReplicate :: Alternative f => Label -> Int -> Protlet f RaftState
+logReplicate label n = Quorum "logReplicate"
+                              (quorumSize n)
+                              makeReplicationRequest
+                              receiveReplicationRequest
+                              respondToReplicationRequest
+ where
+  makeReplicationRequest
+    :: RaftState -> Maybe ([(NodeID, [Int])], [(NodeID, [Int])] -> RaftState)
+  makeReplicationRequest = \case
+    LeaderReplicate followers state@ActorState {..} value ->
+      Just (zip followers (repeat [value]), receiveVote followers state value)
+    _ -> empty
 
-    serverSend = undefined
+  -- decide next state based on the number of votes received
+  -- in reponse body integer 1 indicates accepted vote
+  receiveVote
+    :: [OtherNode] -> ActorState -> Value -> [(NodeID, [Int])] -> RaftState
+  receiveVote followers state@ActorState {..} value responses =
+    if ( fromIntegral
+       . length
+       . filter (\(nodeid, (term : value : values)) -> value == 1)
+       $ responses
+       )
+         >= (quorumSize n)
+      then LeaderCommit
+        followers
+        state { _lastReplicated = Just value, _toCommit = [value] }
+      else Leader followers state
+
+  quorumSize :: Int -> Rational
+  quorumSize n = ((fromIntegral n % 2) + 1)
+
+  receiveReplicationRequest :: Receive RaftState
+  receiveReplicationRequest msg = \case
+    Follower leader others state -> Just (FollowerVote leader others state)
+    _                            -> empty
+
+  respondToReplicationRequest :: Alternative f => Send f RaftState
+  respondToReplicationRequest self = \case
+    FollowerVote leader others state ->
+      (\(vote, otherVotes) ->
+          ( respond label self (Vote leader (_currentTerm state) vote)
+          , Follower leader others state
+          )
+        )
+        <$> oneOf
+              [ 0 -- vote against
+              , 1 -- vote for
+              ]
+    _ -> empty
+
+commit :: Alternative f => Label -> Protlet f RaftState
+commit label = Broadcast "commit" sendCommit receiveCommit replyToCommit
+ where
+  sendCommit
+    :: RaftState -> Maybe ([(NodeID, [Int])], [(NodeID, [Int])] -> RaftState)
+  sendCommit = \case
+    LeaderCommit followers state@ActorState { _currentTerm = currentTerm, _toCommit = toCommit, _log = log }
+      -> Just
+        ( zip followers (repeat $ currentTerm : toCommit)
+        , receiveCommitResponse followers state { _log = toCommit ++ log }
+        )
+    _ -> empty
+
+  -- POSSIBLE IMPROVEMENT can use check term value in response to change self term value
+  receiveCommitResponse
+    :: [OtherNode] -> ActorState -> [(NodeID, [Int])] -> RaftState
+  receiveCommitResponse followers state responses =
+    const (Leader followers state) responses
+
+  receiveCommit :: Receive RaftState
+  receiveCommit msg = \case
+    Follower leader others state ->
+      Just $ FollowerCommit leader others state (tail . _msgBody $ msg)
+    _ -> empty
+
+  replyToCommit :: Alternative f => Send f RaftState
+  replyToCommit self = \case
+    FollowerCommit leader others state@ActorState { _currentTerm = currentTerm, _log = log } toCommit
+      -> pure
+          ( respond label self (Vote leader currentTerm 1)
+          , Follower leader others state { _log = toCommit ++ log }
+          ) -- accept commited values and add to log
+        <|> pure
+              ( respond label self (Vote leader currentTerm 0)
+              , Follower leader others state
+              ) -- reject commited values
+    _ -> empty
+
+-- Candidate starts reelection by sending out new term
+-- value to all other nodes. It then receives votes from
+-- other nodes + 1 for it's own. If this is greater than majority
+-- then it becomes leader else it stays a candidate
+reElection :: Alternative f => Label -> Int -> Protlet f RaftState
+reElection label n = Quorum "reElection"
+                            (quorumSize n)
+                            startElection
+                            receiveElectionRequest
+                            sendElectionVote
+ where
+  startElection :: Broadcast RaftState
+  startElection = \case
+    Candidate others state@ActorState { _currentTerm = newTerm } ->
+      Just (zip others (repeat [newTerm]), receiveVote others state)
+    _ -> empty
+
+  -- decide next state based on the number of votes received
+  -- in reponse body integer 1 indicates accepted vote
+  -- if gets majority vote becomes leader
+  -- else stays follower
+  receiveVote :: [OtherNode] -> ActorState -> [(NodeID, [Int])] -> RaftState
+  receiveVote followers state responses =
+    -- count votes and self vote
+    if 1
+         +  ( fromIntegral
+            . length
+            . filter (\(nodeid, [term, value]) -> value == 1)
+            $ responses
+            )
+         >= (quorumSize n)
+      then Leader followers state
+      else Candidate followers state
+
+  quorumSize :: Int -> Rational
+  quorumSize n = ((fromIntegral n % 2) + 1)
+
+  -- POSSIBLE IMPROVEMENT add checks to only make transition if election
+  -- term is higher than current term in state
+  receiveElectionRequest :: Receive RaftState
+  receiveElectionRequest msg@Message { _msgFrom = candidateID, _msgBody = [newTerm] }
+    = \case
+      Follower leader others state ->
+        Just (FollowerVote leader others state { _currentTerm = newTerm })
+      Leader others state ->
+        Just (FollowerVote candidateID others state { _currentTerm = newTerm })  -- current leader becomes follower
+      _ -> empty
+
+  sendElectionVote :: Alternative f => Send f RaftState
+  sendElectionVote self = \case
+    FollowerVote leader others state@ActorState { _currentTerm = newTerm } ->
+      pure
+          ( respond label self (Vote leader newTerm 1)
+          , Follower leader others state
+          ) -- accept candidate
+        <|> pure
+              ( respond label self (Vote leader newTerm 0)
+              , Follower leader others state
+              ) -- reject candidate
+    _ -> empty
+
+-- follower times out and becomes candidate
+-- this is implemented as a message to self
+-- becomes candidate and increments term value
+followerTimeout :: Alternative f => Label -> Protlet f RaftState
+followerTimeout label = RPC "followerTimeout"
+                            sendSelfMessage
+                            receiveSelfMessage
+ where
+  sendSelfMessage :: ClientStep RaftState
+  sendSelfMessage = \case
+    Follower leader others state@ActorState { _id = selfID, _currentTerm = currentTerm }
+      -> Just
+        (_id state, [currentTerm], receiveSelfMessageResponse others state)
+    _ -> empty
+
+  receiveSelfMessageResponse :: [OtherNode] -> ActorState -> [Int] -> RaftState
+  receiveSelfMessageResponse others state [prevTerm] =
+    Candidate others state { _currentTerm = prevTerm + 1 }
+
+  -- this step does is inert
+  -- it does not change the state and sends back the message it received
+  receiveSelfMessage :: ServerStep RaftState
+  receiveSelfMessage messageBody currentState =
+    Just (messageBody, currentState)
+
+initNetwork :: Alternative f => SpecNetwork f RaftState
+initNetwork = initializeNetwork nodeStates protlets
+ where
+  nodeStates :: [(NodeID, [(Label, RaftState)])]
+  nodeStates =
+    [ ( 0
+      , [ ( label
+          , LeaderReplicate [1, 2, 3, 4]
+                            (ActorState 0 0 Nothing [] Nothing [])
+                            98
+          )
+        ]
+      )
+    , ( 1
+      , [ ( label
+          , Follower 0 [0, 2, 3, 4] (ActorState 1 0 Nothing [] Nothing [])
+          )
+        ]
+      )
+    , ( 2
+      , [ ( label
+          , Follower 0 [0, 1, 3, 4] (ActorState 1 0 Nothing [] Nothing [])
+          )
+        ]
+      )
+    , ( 3
+      , [ ( label
+          , Follower 0 [0, 1, 2, 4] (ActorState 1 0 Nothing [] Nothing [])
+          )
+        ]
+      )
+    , ( 4
+      , [ ( label
+          , Follower 0 [0, 1, 2, 3] (ActorState 1 0 Nothing [] Nothing [])
+          )
+        ]
+      )
+    ]
+
+  protlets :: Alternative f => [(NodeID, [Protlet f RaftState])]
+  protlets =
+    [ ( label
+      , [ OneOf [logReplicate label 4, followerTimeout label]
+        , reElection label 4
+        , commit label
+        ]
+      )
+    ]
+
+  label :: Label
+  label = 0
